@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environnement virtuel
+venv/
+env/
+ENV/
+
+# Base de données
+*.db
+*.sqlite3
+
+# Rapports générés
+osint_*/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Système
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Fichiers temporaires
+*.tmp
+*.temp
+
+# Fichiers de configuration locaux
+.env
+config.local.py
+
+# Fichiers de style temporaires
+style.css
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Output directories
+osint_*/ 
