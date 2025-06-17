@@ -150,40 +150,43 @@ class SecureHTTPSession:
     
     def __init__(self, timeout=10, max_retries=2):
         self.session = requests.Session()
-        self.session.verify = True
+        self.session.verify = False  # Désactive la vérification SSL
         self.timeout = timeout
         self.max_retries = max_retries
-        
-        # Configuration des retries
-        retry_strategy = Retry(
+        self.retry_strategy = Retry(
             total=max_retries,
             backoff_factor=0.5,
             status_forcelist=[500, 502, 503, 504]
         )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        self.session.mount("http://", adapter)
-        self.session.mount("https://", adapter)
+        self.session.mount('http://', HTTPAdapter(max_retries=self.retry_strategy))
+        self.session.mount('https://', HTTPAdapter(max_retries=self.retry_strategy))
+        
+        # Supprime les avertissements SSL
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
     def get(self, url: str, **kwargs) -> Optional[requests.Response]:
         """Requête GET avec gestion des erreurs"""
         try:
-            # Vérifier la résolution DNS avant la requête
-            try:
-                socket.gethostbyname(url.split('://')[1].split('/')[0])
-            except socket.gaierror:
-                logger.warning(f"⚠️ Impossible de résoudre le nom de domaine: {url}")
-                return None
+            # Nettoie l'URL si nécessaire
+            if url.startswith(('http://', 'https://')):
+                url = url.split('://', 1)[1]
             
-            response = self.session.get(
-                url,
-                timeout=self.timeout,
-                allow_redirects=True,
-                **kwargs
-            )
+            # Vérifie d'abord la résolution DNS
+            try:
+                socket.gethostbyname(url.split('/')[0])
+            except socket.gaierror:
+                logger.warning(f"⚠ Impossible de résoudre le nom de domaine: {url}")
+                return None
+
+            # Ajoute le protocole si nécessaire
+            if not url.startswith(('http://', 'https://')):
+                url = f"https://{url}"
+
+            response = self.session.get(url, timeout=self.timeout, **kwargs)
             return response
             
         except requests.exceptions.RequestException as e:
-            logger.warning(f"⚠️ Erreur lors de la requête vers {url}: {e}")
+            logger.warning(f"⚠ Erreur lors de la requête vers {url}: {str(e)}")
             return None
 
 class OSINTScanner:
