@@ -1,3 +1,6 @@
+![image](spiderintel.png)
+
+
 # 🕷️ SpiderIntel v2.0.0
 
 <div align="center">
@@ -54,8 +57,7 @@ python3 -m venv venv
 # Activer l'environnement virtuel
 # Sur Linux/Mac :
 source venv/bin/activate
-# Sur Windows :
-.\venv\Scripts\activate
+
 ```
 
 ### 3. Installation des dépendances
@@ -69,9 +71,48 @@ pip install -r requirements.txt
 
 # Installer les outils Kali Linux requis
 sudo apt install -y nmap whatweb theharvester dnsrecon dirb nikto sqlmap metasploit-framework
+
+# Configuration de Metasploit
+sudo msfdb init
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# Vérifier l'installation de Metasploit
+msfconsole --version
 ```
 
-### 4. Configuration
+### 4. Configuration de Metasploit
+
+Metasploit est un composant essentiel pour le scan de vulnérabilités. Assurez-vous qu'il est correctement configuré :
+
+1. **Vérification de l'installation** :
+   ```bash
+   msfconsole --version
+   ```
+
+2. **Si Metasploit n'est pas installé** :
+   ```bash
+   sudo apt update
+   sudo apt install metasploit-framework
+   ```
+
+3. **Initialisation de la base de données** :
+   ```bash
+   sudo msfdb init
+   ```
+
+4. **Démarrage des services** :
+   ```bash
+   sudo systemctl start postgresql
+   sudo systemctl enable postgresql
+   ```
+
+5. **Vérification du statut** :
+   ```bash
+   sudo systemctl status postgresql
+   ```
+
+### 5. Configuration
 
 ```bash
 # Rendre les scripts exécutables
@@ -81,7 +122,7 @@ chmod +x install.sh spiderintel.sh
 ./install.sh
 ```
 
-### 5. Vérification de l'installation
+### 6. Vérification de l'installation
 
 ```bash
 # Vérifier que tout est bien installé
@@ -224,7 +265,7 @@ python3 spiderintel.py --check-deps
 
 ### 📝 Rapports
 - Génération de rapports détaillés
-- Formats multiples (Markdown, JSON, HTML)
+- Formats multiples (Markdown, JSON)
 - Visualisation interactive des résultats
 - Export des données
 - Résumé exécutif automatique
