@@ -31,13 +31,96 @@ SpiderIntel est un outil d'analyse de sécurité professionnel conçu pour Kali 
 
 ## 🚀 Installation Rapide
 
+### 1. Préparation de l'environnement
+
 ```bash
+# Mettre à jour le système
+sudo apt update && sudo apt upgrade -y
+
+# Installer les dépendances système
+sudo apt install -y python3-pip python3-venv git
+
 # Cloner le dépôt
 git clone https://github.com/servais1983/Spiderintel.git
 cd Spiderintel
+```
 
-# Installer les dépendances
-chmod +x install.sh
+### 2. Création de l'environnement virtuel
+
+```bash
+# Créer l'environnement virtuel
+python3 -m venv venv
+
+# Activer l'environnement virtuel
+# Sur Linux/Mac :
+source venv/bin/activate
+# Sur Windows :
+.\venv\Scripts\activate
+```
+
+### 3. Installation des dépendances
+
+```bash
+# Mettre à jour pip
+pip install --upgrade pip
+
+# Installer les dépendances Python
+pip install -r requirements.txt
+
+# Installer les outils Kali Linux requis
+sudo apt install -y nmap whatweb theharvester dnsrecon dirb nikto sqlmap metasploit-framework
+```
+
+### 4. Configuration
+
+```bash
+# Rendre les scripts exécutables
+chmod +x install.sh spiderintel.sh
+
+# Lancer l'installation
+./install.sh
+```
+
+### 5. Vérification de l'installation
+
+```bash
+# Vérifier que tout est bien installé
+./spiderintel.sh check-deps
+
+# Tester l'installation
+./spiderintel.sh --version
+```
+
+### Désinstallation
+
+Si vous souhaitez désinstaller SpiderIntel :
+
+```bash
+# Désactiver l'environnement virtuel
+deactivate
+
+# Supprimer le répertoire du projet
+cd ..
+rm -rf Spiderintel
+```
+
+### Mise à jour
+
+Pour mettre à jour SpiderIntel :
+
+```bash
+# Activer l'environnement virtuel
+source venv/bin/activate  # Linux/Mac
+# ou
+.\venv\Scripts\activate   # Windows
+
+# Mettre à jour le code
+git pull origin main
+
+# Mettre à jour les dépendances
+pip install -r requirements.txt --upgrade
+
+# Relancer l'installation
 ./install.sh
 ```
 
