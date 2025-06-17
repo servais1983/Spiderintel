@@ -140,6 +140,25 @@ pip install -r requirements.txt --upgrade
 
 ## 🎮 Utilisation
 
+### Scan Complet et Génération des Rapports
+
+Pour effectuer une analyse complète et générer automatiquement tous les rapports :
+
+```bash
+python3 spiderintel.py example.com
+```
+
+Cette commande va :
+- 🔍 Effectuer une analyse OSINT complète
+- 🛡️ Scanner les vulnérabilités
+- 📊 Générer les rapports dans différents formats :
+  - Markdown (détaillé)
+  - JSON (pour l'intégration)
+  - HTML (interactif)
+  - Résumé exécutif
+
+Les rapports seront générés dans le dossier `reports/` par défaut.
+
 ### Commandes de base
 
 ```bash
