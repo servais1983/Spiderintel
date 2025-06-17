@@ -57,8 +57,7 @@ python3 -m venv venv
 # Activer l'environnement virtuel
 # Sur Linux/Mac :
 source venv/bin/activate
-# Sur Windows :
-.\venv\Scripts\activate
+
 ```
 
 ### 3. Installation des dépendances
