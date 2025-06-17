@@ -817,10 +817,12 @@ class ExploitSuggester:
 class MetasploitScanner:
     """Scanner de vulnérabilités utilisant Metasploit"""
     
-    def __init__(self, domain: str):
+    def __init__(self, domain: str, scan_depth: str = "quick"):
         self.domain = domain
         self.results = []
         self.logger = logging.getLogger(__name__)
+        self.scan_depth = scan_depth  # "quick", "normal", "deep"
+        self.timeout = 300  # 5 minutes par défaut
     
     def scan_with_metasploit(self) -> List[Dict[str, Any]]:
         """Effectue un scan avec Metasploit"""
@@ -843,9 +845,13 @@ class MetasploitScanner:
             with open(script_path, 'w') as f:
                 f.write(script_content)
             
-            # Exécuter le scan
+            # Exécuter le scan avec timeout
             cmd = f"msfconsole -q -r {script_path}"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            try:
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=self.timeout)
+            except subprocess.TimeoutExpired:
+                logger.warning("⚠️ Le scan Metasploit a dépassé le délai maximum")
+                return self.results
             
             if result.returncode != 0:
                 logger.error(f"❌ Erreur lors du scan Metasploit: {result.stderr}")
@@ -871,20 +877,32 @@ class MetasploitScanner:
     
     def _generate_metasploit_script(self) -> str:
         """Génère le script Metasploit pour le scan"""
-        return f"""
+        # Modules de base pour tous les niveaux de scan
+        base_modules = f"""
 # Configuration
 setg RHOSTS {self.domain}
 setg VERBOSE true
+setg TIMEOUT 30
 
-# Scan des ports ouverts
+# Scan des ports ouverts (rapide)
 use auxiliary/scanner/portscan/tcp
+set PORTS 21,22,23,25,80,443,445,3306,3389,8080
 run
 
-# Scan des vulnérabilités web
+# Scan des vulnérabilités web de base
 use auxiliary/scanner/http/http_version
 run
-
+"""
+        
+        # Modules supplémentaires selon la profondeur
+        if self.scan_depth == "quick":
+            return base_modules + "\nexit"
+            
+        elif self.scan_depth == "normal":
+            return base_modules + """
+# Scan des vulnérabilités web avancées
 use auxiliary/scanner/http/dir_scanner
+set THREADS 10
 run
 
 use auxiliary/scanner/http/http_put
@@ -894,23 +912,57 @@ run
 use auxiliary/scanner/ssl/openssl_heartbleed
 run
 
+# Scan des vulnérabilités SSH
+use auxiliary/scanner/ssh/ssh_version
+run
+
+exit
+"""
+        else:  # deep
+            return base_modules + """
+# Scan des vulnérabilités web avancées
+use auxiliary/scanner/http/dir_scanner
+set THREADS 20
+run
+
+use auxiliary/scanner/http/http_put
+run
+
+use auxiliary/scanner/http/http_traversal
+run
+
+# Scan des vulnérabilités SSL/TLS
+use auxiliary/scanner/ssl/openssl_heartbleed
+run
+
+use auxiliary/scanner/ssl/ssl_version
+run
+
 # Scan des vulnérabilités SMB
 use auxiliary/scanner/smb/smb_version
+run
+
+use auxiliary/scanner/smb/smb_enumshares
 run
 
 # Scan des vulnérabilités SSH
 use auxiliary/scanner/ssh/ssh_version
 run
 
+use auxiliary/scanner/ssh/ssh_enumusers
+run
+
 # Scan des vulnérabilités FTP
 use auxiliary/scanner/ftp/ftp_version
+run
+
+use auxiliary/scanner/ftp/ftp_anonymous
 run
 
 # Scan des vulnérabilités DNS
 use auxiliary/scanner/dns/dns_amp
 run
 
-# Sortie
 exit
 """
     
@@ -1048,27 +1100,72 @@ class RealDataReportGenerator:
                 report.append(f"- {email}")
         
         # Technologies
-        if assets['technologies']:
-            report.append("\n### Technologies")
-            for tech in sorted(assets['technologies']):
+        if hasattr(self.osint_results, 'technologies') and self.osint_results.technologies:
+            report.append("\n### Technologies Détectées")
+            for tech in sorted(self.osint_results.technologies):
                 report.append(f"- {tech}")
         
-        # Problèmes de sécurité
-        if issues:
-            report.append("\n## ⚠️ Problèmes de Sécurité")
-            for category, problems in issues.items():
-                report.append(f"\n### {category}")
-                for problem in problems:
-                    report.append(f"- **{problem['name']}** ({problem['severity']})")
-                    report.append(f"  - Description: {problem['description']}")
-                    report.append(f"  - Cible: {problem['target']}")
+        # Ports et Services
+        if hasattr(self.osint_results, 'ports') and self.osint_results.ports:
+            report.append("\n### Ports et Services")
+            for ip, ports in self.osint_results.ports.items():
+                report.append(f"\n#### {ip}")
+                for port in sorted(ports):
+                    report.append(f"- Port {port}")
         
-        # Recommandations
-        report.append("\n## 💡 Recommandations")
-        report.append("1. Traiter en priorité les problèmes de sévérité élevée")
-        report.append("2. Mettre en place une surveillance continue")
-        report.append("3. Planifier des scans réguliers (mensuel recommandé)")
-        report.append("4. Former l'équipe aux bonnes pratiques de sécurité")
+        # Certificats SSL
+        if hasattr(self.osint_results, 'certificates') and self.osint_results.certificates:
+            report.append("\n### Certificats SSL")
+            for domain, cert in self.osint_results.certificates.items():
+                report.append(f"\n#### {domain}")
+                report.append(f"- **Émetteur:** {cert.get('issuer', 'Inconnu')}")
+                report.append(f"- **Valide jusqu'au:** {cert.get('valid_until', 'Inconnu')}")
+                report.append(f"- **Algorithme:** {cert.get('algorithm', 'Inconnu')}")
+        
+        # Vulnérabilités
+        if self.vulnerabilities:
+            report.append("\n## ⚠️ Vulnérabilités")
+            for vuln in self.vulnerabilities:
+                report.append(f"\n### {vuln.name}")
+                report.append(f"- **Sévérité:** {vuln.severity}")
+                report.append(f"- **Description:** {vuln.description}")
+                report.append(f"- **Score CVSS:** {vuln.cvss_score}")
+                if hasattr(vuln, 'cve_id') and vuln.cve_id:
+                    report.append(f"- **CVE:** {vuln.cve_id}")
+                if hasattr(vuln, 'mitigation') and vuln.mitigation:
+                    report.append(f"- **Mitigation:** {vuln.mitigation}")
+                if hasattr(vuln, 'references') and vuln.references:
+                    report.append("- **Références:**")
+                    for ref in vuln.references:
+                        report.append(f"  - {ref}")
+        
+        # Suggestions d'exploitation
+        if self.exploit_suggestions:
+            report.append("\n## 💡 Suggestions d'Exploitation")
+            for exploit in self.exploit_suggestions:
+                report.append(f"\n### {exploit.get('vulnerability', 'Vulnérabilité inconnue')}")
+                if 'service' in exploit:
+                    report.append(f"- **Service:** {exploit['service']}")
+                if 'tools' in exploit:
+                    report.append(f"- **Outils recommandés:** {', '.join(exploit['tools'])}")
+                if 'commands' in exploit:
+                    report.append("- **Commandes:**")
+                    report.append("```bash")
+                    for cmd in exploit['commands']:
+                        report.append(cmd)
+                    report.append("```")
+                if 'legal_notice' in exploit:
+                    report.append(f"- **⚠️ Avertissement:** {exploit['legal_notice']}")
+        
+        # Recommandations de sécurité
+        report.append("\n## 🛡️ Recommandations de Sécurité")
+        report.append("\n### Actions Prioritaires")
+        for severity in ['Critical', 'High', 'Medium', 'Low']:
+            vulns = [v for v in self.vulnerabilities if v.severity == severity]
+            if vulns:
+                report.append(f"\n#### Vulnérabilités {severity}")
+                for vuln in vulns:
+                    report.append(f"- {vuln.name}: {vuln.mitigation}")
         
         return "\n".join(report)
     
@@ -1534,10 +1631,11 @@ class ReportGenerator:
 class SpiderIntelMain:
     """Classe principale corrigée"""
     
-    def __init__(self, domain: str, output_dir: str = "reports"):
+    def __init__(self, domain: str, output_dir: str = "reports", scan_depth: str = "quick"):
         self.domain = domain
         self.output_dir = Path(output_dir)
         self.logger = logging.getLogger(__name__)
+        self.scan_depth = scan_depth
     
     def run_complete_analysis(self) -> Dict[str, Any]:
         """Exécute une analyse complète avec rapports basés sur les données réelles"""
@@ -1561,7 +1659,7 @@ class SpiderIntelMain:
             
             # Phase 3: Scan Metasploit
             logger.info("🔍 Phase 3: Scan Metasploit")
-            metasploit_scanner = MetasploitScanner(self.domain)
+            metasploit_scanner = MetasploitScanner(self.domain, self.scan_depth)
             metasploit_results = metasploit_scanner.scan_with_metasploit()
             
             # Fusionner les résultats des vulnérabilités
@@ -1984,6 +2082,8 @@ ou pour lesquels vous avez une autorisation écrite explicite.
                        help='Vérifier les dépendances seulement')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Mode verbeux')
+    parser.add_argument('--scan-depth', choices=['quick', 'normal', 'deep'],
+                       default='quick', help='Niveau de profondeur du scan (défaut: quick)')
     
     args = parser.parse_args()
     
@@ -2006,7 +2106,7 @@ ou pour lesquels vous avez une autorisation écrite explicite.
     
     try:
         # Lancement de l'analyse
-        spider_intel = SpiderIntelMain(args.domain, args.output)
+        spider_intel = SpiderIntelMain(args.domain, args.output, args.scan_depth)
         results = spider_intel.run_complete_analysis()
         
         logger.info("\n🎯 Analyse terminée avec succès!")
@@ -2023,4 +2123,5 @@ ou pour lesquels vous avez une autorisation écrite explicite.
         sys.exit(1)
 
 if __name__ == "__main__":
+    main()
     main()
