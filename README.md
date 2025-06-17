@@ -152,10 +152,9 @@ Cette commande va :
 - 🔍 Effectuer une analyse OSINT complète
 - 🛡️ Scanner les vulnérabilités
 - 📊 Générer les rapports dans différents formats :
-  - Markdown (détaillé)
+  - Markdown (rapport détaillé)
   - JSON (pour l'intégration)
-  - HTML (interactif)
-  - Résumé exécutif
+  - Résumé exécutif (synthèse des résultats)
 
 Les rapports seront générés dans le dossier `reports/` par défaut.
 
