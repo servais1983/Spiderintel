@@ -41,6 +41,8 @@ import socket
 from dataclasses import dataclass
 from typing import Dict, List, Set, Optional, Any
 import logging
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
 
 # Désactiver les avertissements SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -144,34 +146,45 @@ class SecurityValidator:
         return bool(re.match(pattern, email))
 
 class SecureHTTPSession:
-    """Session HTTP sécurisée avec gestion des timeouts et retry"""
+    """Session HTTP sécurisée avec gestion des erreurs"""
     
-    def __init__(self, timeout=30, max_retries=3):
+    def __init__(self, timeout=10, max_retries=2):
         self.session = requests.Session()
+        self.session.verify = True
         self.timeout = timeout
         self.max_retries = max_retries
-        self.session.headers.update({
-            'User-Agent': 'SpiderIntel/2.0.0 Security Scanner',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive'
-        })
+        
+        # Configuration des retries
+        retry_strategy = Retry(
+            total=max_retries,
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504]
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
     
     def get(self, url: str, **kwargs) -> Optional[requests.Response]:
-        """Effectue une requête GET sécurisée"""
-        kwargs.setdefault('timeout', self.timeout)
-        kwargs.setdefault('verify', False)
-        kwargs.setdefault('allow_redirects', True)
-        
-        for attempt in range(self.max_retries):
+        """Requête GET avec gestion des erreurs"""
+        try:
+            # Vérifier la résolution DNS avant la requête
             try:
-                response = self.session.get(url, **kwargs)
-                return response
-            except requests.exceptions.RequestException as e:
-                logger.warning(f"Tentative {attempt + 1} échouée pour {url}: {e}")
-                if attempt < self.max_retries - 1:
-                    time.sleep(2 ** attempt)
-        return None
+                socket.gethostbyname(url.split('://')[1].split('/')[0])
+            except socket.gaierror:
+                logger.warning(f"⚠️ Impossible de résoudre le nom de domaine: {url}")
+                return None
+            
+            response = self.session.get(
+                url,
+                timeout=self.timeout,
+                allow_redirects=True,
+                **kwargs
+            )
+            return response
+            
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"⚠️ Erreur lors de la requête vers {url}: {e}")
+            return None
 
 class OSINTScanner:
     """Scanner OSINT avec corrections"""
@@ -489,6 +502,8 @@ class VulnerabilityScanner:
                     "-T4",  # Timing agressif
                     "-F",   # Scan des ports les plus communs
                     "-Pn",  # Skip host discovery
+                    "--max-retries", "1",  # Réduire les retries
+                    "--host-timeout", "30s",  # Timeout par hôte
                     ip
                 ]
                 
@@ -496,7 +511,7 @@ class VulnerabilityScanner:
                     initial_cmd,
                     capture_output=True,
                     text=True,
-                    timeout=60
+                    timeout=45  # Réduire le timeout initial
                 )
                 
                 if initial_result.returncode != 0:
@@ -518,9 +533,11 @@ class VulnerabilityScanner:
                     "nmap",
                     "-sV",  # Version detection
                     "--script", "vuln",  # Uniquement les scripts vuln
-                    "--script-timeout", "30s",
+                    "--script-timeout", "20s",  # Réduire le timeout des scripts
                     "-T4",
                     "-Pn",
+                    "--max-retries", "1",
+                    "--host-timeout", "30s",
                     "-p", ports_str,
                     ip
                 ]
@@ -529,7 +546,7 @@ class VulnerabilityScanner:
                     detailed_cmd,
                     capture_output=True,
                     text=True,
-                    timeout=180
+                    timeout=90  # Réduire le timeout détaillé
                 )
                 
                 if detailed_result.returncode == 0:
