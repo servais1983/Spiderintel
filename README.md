@@ -1,87 +1,163 @@
-# SpiderIntel 🕷️
+# SpiderIntel v2.0.0
 
-SpiderIntel est un outil de collecte d'informations OSINT (Open Source Intelligence) automatisé qui permet d'effectuer une analyse approfondie d'un domaine cible.
+![Kali Linux](https://img.shields.io/badge/Kali_Linux-557C94?style=for-the-badge&logo=kali-linux&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.8+-blue.svg?style=for-the-badge&logo=python&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)
 
-## 🚀 Fonctionnalités
+## Description
 
-- Collecte d'informations WHOIS
-- Analyse DNS avec dnsenum
-- Recherche d'informations avec TheHarvester
-- Analyse des technologies web avec WhatWeb
-- Crawling web avec Photon
-- Recherche de certificats SSL sur crt.sh
-- Intégration avec Shodan (nécessite un abonnement)
-- Génération de rapports au format Markdown et HTML
+SpiderIntel est un outil d'analyse de sécurité professionnel exclusivement conçu pour Kali Linux. Il combine des capacités avancées d'OSINT et d'analyse de vulnérabilités pour fournir une évaluation complète de la sécurité des systèmes.
 
-## 📋 Prérequis
+## ⚠️ Avertissement Légal
 
-- Python 3.x
-- Outils système :
-  - whois
-  - dnsenum
-  - theHarvester
+Cet outil est conçu pour être utilisé UNIQUEMENT sur des systèmes pour lesquels vous avez une autorisation écrite explicite. L'utilisation non autorisée de cet outil est illégale et peut entraîner des poursuites judiciaires.
+
+## Prérequis
+
+- Kali Linux 2023.1 ou supérieur
+- Python 3.8 ou supérieur
+- Outils Kali Linux requis :
+  - nmap
   - whatweb
-  - photon
-  - pandoc (optionnel, pour la génération de rapports HTML)
+  - theharvester
+  - dnsrecon
+  - dirb
+  - nikto
+  - sqlmap
+  - metasploit-framework
 
-## 🛠️ Installation
+## Installation
 
 1. Clonez le dépôt :
 ```bash
-git clone https://github.com/servais1983/SpiderIntel.git
+git clone https://github.com/votre-repo/SpiderIntel.git
 cd SpiderIntel
 ```
 
-2. Installez les dépendances Python :
+2. Installez SpiderIntel :
 ```bash
-pip install -r requirements.txt
+chmod +x install.sh
+./install.sh
 ```
 
-3. Installez les outils système (sur Linux) :
-```bash
-sudo apt update && sudo apt install -y whois dnsenum theharvester whatweb photon pandoc
-```
+## Utilisation
 
-## 💻 Utilisation
+### Commandes de base
 
 ```bash
-python3 spiderintel.py <domain>
+# Vérifier les dépendances
+./spiderintel.sh check-deps
+
+# Lancer une analyse
+./spiderintel.sh example.com
+
+# Vérifier le statut
+./spiderintel.sh status
+
+# Mettre à jour
+./spiderintel.sh update
 ```
 
-Exemple :
+### Options d'analyse
+
 ```bash
-python3 spiderintel.py example.com
+# Mode furtif
+./spiderintel.sh example.com --stealth
+
+# Analyse OSINT uniquement
+./spiderintel.sh example.com --osint-only
+
+# Format de sortie spécifique
+./spiderintel.sh example.com --format json
+
+# Dossier de sortie personnalisé
+./spiderintel.sh example.com --output /chemin/vers/rapports
 ```
 
-## 📊 Exemple de sortie
+## Fonctionnalités
 
-Le script génère un dossier `osint_<domain>_<date>` contenant :
-- whois.txt : Informations WHOIS
-- dnsenum.txt : Résultats de l'énumération DNS
-- harvester.txt : Résultats de TheHarvester
-- whatweb.txt : Informations sur les technologies web
-- photon/ : Résultats du crawling web
-- crtsh.json : Certificats SSL trouvés
-- shodan.json : Informations Shodan (si disponible)
-- report.md : Rapport complet au format Markdown
-- report.html : Rapport complet au format HTML (si pandoc est installé)
+### Analyse OSINT
+- Collecte d'informations sur les domaines
+- Analyse des sous-domaines
+- Recherche d'emails et de noms d'utilisateurs
+- Analyse des technologies utilisées
 
-## ⚠️ Note importante
+### Analyse de Vulnérabilités
+- Scan de ports et services
+- Détection de vulnérabilités web
+- Test d'injection SQL
+- Analyse de configuration
 
-L'utilisation de Shodan nécessite un abonnement payant. Pour utiliser cette fonctionnalité :
-1. Créez un compte sur https://account.shodan.io/
-2. Souscrivez à un abonnement payant
-3. Configurez votre clé API dans le fichier spiderintel.py
+### Rapports
+- Génération de rapports détaillés
+- Formats multiples (Markdown, JSON, HTML)
+- Visualisation des résultats
+- Export des données
 
-## 📝 Licence
+## Structure des Répertoires
 
-Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de détails.
+```
+SpiderIntel/
+├── reports/          # Rapports générés
+├── logs/            # Fichiers de logs
+├── temp/            # Fichiers temporaires
+├── spiderintel.py   # Script principal
+├── spiderintel.sh   # Script de lancement
+├── install.sh       # Script d'installation
+├── config.yaml      # Configuration
+└── requirements.txt # Dépendances Python
+```
 
-## 👥 Contribution
+## Configuration
 
-Les contributions sont les bienvenues ! N'hésitez pas à :
+Le fichier `config.yaml` permet de personnaliser le comportement de SpiderIntel :
+
+```yaml
+# Configuration générale
+general:
+  version: "2.0.0"
+  platform: "kali"
+  debug: false
+  stealth_mode: true
+
+# Configuration des scans
+scans:
+  nmap:
+    enabled: true
+    options: "-sV -sC"
+    timeout: 300
+```
+
+## Sécurité
+
+- Vérification stricte de l'environnement Kali Linux
+- Validation des entrées utilisateur
+- Nettoyage sécurisé des fichiers temporaires
+- Gestion des permissions
+
+## Contribution
+
+Les contributions sont les bienvenues ! Veuillez suivre ces étapes :
+
 1. Fork le projet
-2. Créer une branche pour votre fonctionnalité
-3. Commiter vos changements
-4. Pousser vers la branche
-5. Ouvrir une Pull Request 
+2. Créez une branche pour votre fonctionnalité
+3. Committez vos changements
+4. Poussez vers la branche
+5. Ouvrez une Pull Request
+
+## Licence
+
+Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
+
+## Support
+
+Pour toute question ou problème :
+- Ouvrez une issue sur GitHub
+- Consultez la documentation
+- Contactez l'équipe de support
+
+## Remerciements
+
+- Équipe Kali Linux
+- Communauté open source
+- Tous les contributeurs

@@ -1,4 +1,38 @@
+# SpiderIntel v2.0.0 - Dépendances pour Kali Linux
+
+# Dépendances principales
 requests>=2.31.0
+beautifulsoup4>=4.12.2
+dnspython>=2.4.2
 python-whois>=0.8.0
-rich>=13.7.0
-tld>=0.13.1 
+tldextract>=3.4.4
+pandas>=2.0.3
+networkx>=3.1
+matplotlib>=3.7.1
+tqdm>=4.65.0
+colorama>=0.4.6
+termcolor>=2.3.0
+rich>=13.4.2
+cryptography>=41.0.3
+psutil>=5.9.5
+python-dotenv>=1.0.0
+validators>=0.22.0
+packaging>=23.1
+
+# Dépendances de sécurité
+pyOpenSSL>=23.2.0
+pycryptodome>=3.19.0
+
+# Dépendances de reporting
+jinja2>=3.1.2
+markdown>=3.4.3
+pyyaml>=6.0.1
+
+# Optional: API integrations (uncomment if needed)
+# shodan>=1.30.0
+# censys>=2.2.0
+# virustotal-python>=1.0.2
+
+# Development and testing
+pytest>=7.4.0
+pytest-cov>=4.1.0

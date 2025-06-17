@@ -22,8 +22,56 @@ wheels/
 
 # Environnement virtuel
 venv/
-env/
 ENV/
+env/
+
+# Logs et rapports
+logs/
+reports/
+*.log
+*.log.*
+
+# Fichiers temporaires
+temp/
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# Fichiers de configuration locaux
+.env
+.env.*
+config.local.yaml
+*.local.yaml
+
+# Fichiers de base de données
+*.db
+*.sqlite
+*.sqlite3
+
+# Fichiers de cache
+.cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Fichiers IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Fichiers de sécurité
+*.pem
+*.key
+*.crt
+*.csr
+*.srl
+*.p12
+*.pfx
+*.jks
+*.keystore
 
 # Base de données
 *.db

@@ -1,0 +1,322 @@
+# SpiderIntel v2.0.0 - Configuration pour Kali Linux
+
+# Configuration générale
+general:
+  version: "2.0.0"
+  platform: "kali"
+  debug: false
+  stealth_mode: true
+
+# Configuration des scans
+scans:
+  nmap:
+    enabled: true
+    options: "-sV -sC"
+    timeout: 300
+    
+  web:
+    enabled: true
+    tools:
+      whatweb:
+        enabled: true
+        timeout: 30
+        max_retries: 3
+        retry_delay: 5
+        options: "--max-redirects=3 --user-agent='SpiderIntel/2.0.0'"
+      nikto:
+        enabled: true
+        timeout: 600
+      dirb:
+        enabled: true
+        timeout: 300
+    
+  dns:
+    enabled: true
+    tools:
+      - dnsrecon
+    timeout: 300
+    
+  vuln:
+    enabled: true
+    tools:
+      - sqlmap
+    timeout: 900
+
+# Configuration des rapports
+reports:
+  format: "markdown"
+  directory: "reports"
+  include_timestamp: true
+  compress: true
+
+# Configuration des logs
+logging:
+  level: "INFO"
+  file: "logs/spiderintel.log"
+  max_size: "10MB"
+  backup_count: 5
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"
+
+# Configuration de la sécurité
+security:
+  max_scan_time: 3600
+  rate_limit: true
+  max_requests_per_second: 10
+  user_agent: "SpiderIntel/2.0.0 (Kali Linux)"
+  timeout:
+    default: 30
+    max: 300
+    min: 5
+  retry:
+    max_attempts: 3
+    delay: 5
+    backoff: 2
+
+# Configuration OSINT
+osint:
+  # Reconnaissance passive
+  passive:
+    crtsh_enabled: true
+    dns_enumeration: true
+    social_media_search: true
+    search_engines: ["google", "bing", "duckduckgo"]
+    
+  # Reconnaissance active  
+  active:
+    port_scanning: false
+    service_detection: true
+    whatweb_scan: true
+    harvester_scan: true
+    
+  # Limites de sécurité
+  limits:
+    max_subdomains_scan: 50
+    max_ips_scan: 20
+    max_threads: 20
+    scan_delay: 1  # secondes entre les requêtes
+
+# Configuration des scans de vulnérabilités
+vulnerability_scanning:
+  # Scans Nmap
+  nmap:
+    enabled: true
+    scripts: ["vuln", "default", "safe"]
+    timing_template: "T4"
+    max_scan_time: 300
+    ports: "top-1000"
+    
+  # Scans web
+  web:
+    security_headers: true
+    sensitive_files: true
+    ssl_configuration: true
+    common_vulnerabilities: true
+    
+  # Base de données de vulnérabilités
+  databases:
+    nvd_enabled: false  # Nécessite une clé API
+    exploit_db: true
+    local_db: true
+
+# Configuration des suggestions d'exploitation
+exploitation:
+  enabled: true
+  auto_generate: true
+  include_payloads: true
+  include_commands: true
+  safety_warnings: true
+  
+  # Outils d'exploitation
+  tools:
+    metasploit: true
+    burpsuite: true
+    sqlmap: true
+    hydra: true
+    nikto: true
+    dirb: true
+    gobuster: true
+
+# APIs externes (optionnel)
+apis:
+  shodan:
+    enabled: false
+    api_key: ""
+    max_results: 100
+    
+  virustotal:
+    enabled: false
+    api_key: ""
+    max_requests: 500
+    
+  censys:
+    enabled: false
+    api_id: ""
+    api_secret: ""
+    
+  have_i_been_pwned:
+    enabled: false
+    api_key: ""
+
+# Configuration des rapports
+reporting:
+  formats: ["markdown", "json", "html"]
+  include_graphs: true
+  detailed_findings: true
+  executive_summary: true
+  technical_details: true
+  
+  # Graphiques
+  visualization:
+    network_graph: true
+    vulnerability_chart: true
+    timeline_analysis: false
+    
+  # Export
+  export:
+    csv_data: true
+    json_raw: true
+    pdf_report: false  # Nécessite wkhtmltopdf
+
+# Configuration du logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file_logging: true
+  console_logging: true
+  log_rotation: true
+  max_log_size: "10MB"
+  backup_count: 5
+  
+  # Loggers spécifiques
+  loggers:
+    osint: "INFO"
+    vulnerability: "INFO"
+    exploitation: "WARNING"
+    reporting: "INFO"
+
+# Paramètres de sécurité
+security:
+  # Validation des entrées
+  input_validation: true
+  domain_whitelist: []
+  domain_blacklist: []
+  
+  # Limites de rate limiting
+  rate_limiting:
+    requests_per_minute: 60
+    burst_limit: 10
+    
+  # Proxy et anonymisation
+  proxy:
+    enabled: false
+    proxy_list: []
+    rotate_proxies: false
+    
+  # SSL/TLS
+  ssl:
+    verify_certificates: false
+    custom_ca_bundle: ""
+
+# Configuration des wordlists
+wordlists:
+  subdomains: [
+    "/usr/share/wordlists/dirb/common.txt",
+    "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt"
+  ]
+  directories: [
+    "/usr/share/wordlists/dirb/common.txt"
+  ]
+  passwords: [
+    "/usr/share/wordlists/rockyou.txt"
+  ]
+  usernames: [
+    "/usr/share/wordlists/dirb/others/names.txt"
+  ]
+
+# Exclusions et filtres
+filters:
+  # Extensions de fichiers à ignorer
+  exclude_extensions: [".jpg", ".jpeg", ".png", ".gif", ".css", ".js", ".ico"]
+  
+  # Codes de statut HTTP à ignorer
+  exclude_status_codes: [404, 403, 400]
+  
+  # Domaines à exclure
+  exclude_domains: []
+  
+  # IPs à exclure (RFC 1918)
+  exclude_private_ips: true
+
+# Plugins et extensions
+plugins:
+  enabled: []
+  disabled: []
+  custom_plugins_dir: "plugins/"
+
+# Mise en cache
+caching:
+  enabled: true
+  cache_dir: "cache/"
+  cache_duration: 3600  # secondes
+  cache_size_limit: "100MB"
+
+# Notifications
+notifications:
+  email:
+    enabled: false
+    smtp_server: ""
+    smtp_port: 587
+    username: ""
+    password: ""
+    recipients: []
+    
+  webhook:
+    enabled: false
+    url: ""
+    headers: {}
+    
+  slack:
+    enabled: false
+    webhook_url: ""
+    channel: "#security"
+
+# Intégrations
+integrations:
+  jira:
+    enabled: false
+    server_url: ""
+    username: ""
+    api_token: ""
+    project_key: ""
+    
+  gitlab:
+    enabled: false
+    server_url: ""
+    private_token: ""
+    project_id: ""
+    
+  splunk:
+    enabled: false
+    server_url: ""
+    auth_token: ""
+    index: "security"
+
+# Paramètres avancés
+advanced:
+  # Optimisations
+  performance:
+    use_cache: true
+    parallel_processing: true
+    memory_limit: "1GB"
+    
+  # Debug
+  debug:
+    save_raw_responses: false
+    detailed_errors: false
+    profile_performance: false
+    
+  # Expérimental
+  experimental:
+    ai_powered_analysis: false
+    machine_learning_detection: false
+    behavior_analysis: false 
