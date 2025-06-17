@@ -1,3 +1,6 @@
+![image](spiderintel.png)
+
+
 # 🕷️ SpiderIntel v2.0.0
 
 <div align="center">
