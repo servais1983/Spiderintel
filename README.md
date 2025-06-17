@@ -144,32 +144,48 @@ pip install -r requirements.txt --upgrade
 
 ```bash
 # Vérifier les dépendances
-./spiderintel.sh check-deps
+python3 spiderintel.py --check-deps
 
 # Lancer une analyse
-./spiderintel.sh example.com
+python3 spiderintel.py example.com
 
 # Vérifier le statut
-./spiderintel.sh status
+python3 spiderintel.py --status
 
 # Mettre à jour
-./spiderintel.sh update
+python3 spiderintel.py --update
 ```
 
 ### Options avancées
 
 ```bash
 # Mode furtif
-./spiderintel.sh example.com --stealth
+python3 spiderintel.py example.com --stealth
 
 # Analyse OSINT uniquement
-./spiderintel.sh example.com --osint-only
+python3 spiderintel.py example.com --osint-only
 
 # Format de sortie spécifique
-./spiderintel.sh example.com --format json
+python3 spiderintel.py example.com --format json
 
 # Dossier de sortie personnalisé
-./spiderintel.sh example.com --output /chemin/vers/rapports
+python3 spiderintel.py example.com --output /chemin/vers/rapports
+```
+
+### Exemples d'utilisation
+
+```bash
+# Analyse complète d'un domaine
+python3 spiderintel.py example.com
+
+# Analyse avec mode furtif et sortie JSON
+python3 spiderintel.py example.com --stealth --format json
+
+# Analyse OSINT avec dossier de sortie personnalisé
+python3 spiderintel.py example.com --osint-only --output /tmp/reports
+
+# Vérification des dépendances
+python3 spiderintel.py --check-deps
 ```
 
 ## 📊 Fonctionnalités
