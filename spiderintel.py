@@ -482,25 +482,58 @@ class VulnerabilityScanner:
         
         for ip in list(self.osint_results.ips)[:5]:  # Limiter à 5 IPs
             try:
-                cmd = [
+                # Scan initial rapide des ports
+                initial_cmd = [
                     "nmap",
-                    "-sV",
-                    "--script", "vuln,default,safe",
-                    "--script-timeout", "60s",
-                    "-T4",
-                    "-Pn",
+                    "-sS",  # SYN scan plus rapide
+                    "-T4",  # Timing agressif
+                    "-F",   # Scan des ports les plus communs
+                    "-Pn",  # Skip host discovery
                     ip
                 ]
                 
-                result = subprocess.run(
-                    cmd,
+                initial_result = subprocess.run(
+                    initial_cmd,
                     capture_output=True,
                     text=True,
-                    timeout=300
+                    timeout=60
                 )
                 
-                if result.returncode == 0:
-                    self.parse_nmap_vulnerabilities(result.stdout, ip)
+                if initial_result.returncode != 0:
+                    continue
+                
+                # Extraire les ports ouverts
+                open_ports = []
+                for line in initial_result.stdout.split('\n'):
+                    if 'open' in line:
+                        port = line.split('/')[0]
+                        open_ports.append(port)
+                
+                if not open_ports:
+                    continue
+                
+                # Scan détaillé uniquement sur les ports ouverts
+                ports_str = ','.join(open_ports)
+                detailed_cmd = [
+                    "nmap",
+                    "-sV",  # Version detection
+                    "--script", "vuln",  # Uniquement les scripts vuln
+                    "--script-timeout", "30s",
+                    "-T4",
+                    "-Pn",
+                    "-p", ports_str,
+                    ip
+                ]
+                
+                detailed_result = subprocess.run(
+                    detailed_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=180
+                )
+                
+                if detailed_result.returncode == 0:
+                    self.parse_nmap_vulnerabilities(detailed_result.stdout, ip)
                 
             except subprocess.TimeoutExpired:
                 logger.warning(f"⚠️ Timeout Nmap pour {ip}")
