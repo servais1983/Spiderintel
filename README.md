@@ -224,7 +224,7 @@ python3 spiderintel.py --check-deps
 
 ### 📝 Rapports
 - Génération de rapports détaillés
-- Formats multiples (Markdown, JSON, HTML)
+- Formats multiples (Markdown, JSON)
 - Visualisation interactive des résultats
 - Export des données
 - Résumé exécutif automatique
