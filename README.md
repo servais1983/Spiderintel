@@ -339,6 +339,71 @@ Pour toute question ou problème :
 - Communauté open source
 - Tous les contributeurs
 
+## Niveaux de Scan
+
+SpiderIntel propose trois niveaux de scan pour adapter l'analyse à vos besoins :
+
+### 1. Scan Rapide (Quick) - Par défaut
+```bash
+python3 spiderintel.py example.com
+```
+- Scan des ports essentiels (80, 443, 22, 21, 25)
+- Vérification des vulnérabilités de base
+- Analyse OSINT standard
+- Durée estimée : 5-10 minutes
+
+### 2. Scan Normal
+```bash
+python3 spiderintel.py example.com --scan-depth normal
+```
+- Scan de ports étendu
+- Vérification approfondie des vulnérabilités
+- Analyse OSINT complète
+- Durée estimée : 15-30 minutes
+
+### 3. Scan Approfondi (Deep)
+```bash
+python3 spiderintel.py example.com --scan-depth deep
+```
+- Scan exhaustif de tous les ports
+- Analyse complète des vulnérabilités avec Metasploit
+- Analyse OSINT approfondie
+- Durée estimée : 30-60 minutes
+
+## Optimisation de Metasploit
+
+Le scan Metasploit a été optimisé pour être plus efficace :
+- Timeout global de 5 minutes pour éviter les scans trop longs
+- Timeout de 30 secondes par module
+- Parallélisation des scans avec `THREADS`
+- Limitation intelligente des ports scannés selon le niveau
+
+## Rapports Générés
+
+Tous les rapports sont générés dans le dossier `reports/` (ou le dossier spécifié avec l'option `--output`). Pour chaque analyse, vous trouverez :
+
+### Structure des Rapports
+```
+reports/
+├── example.com/
+│   ├── rapport_complet.md        # Rapport détaillé en Markdown
+│   ├── rapport_executif.md       # Résumé exécutif
+│   ├── rapport_technique.json    # Données techniques au format JSON
+│   └── rapport_metasploit.txt    # Résultats du scan Metasploit
+```
+
+### Formats Disponibles
+- **Markdown** (`rapport_complet.md`) : Rapport complet et détaillé
+- **JSON** (`rapport_technique.json`) : Données brutes pour analyse technique
+- **Résumé Exécutif** (`rapport_executif.md`) : Vue d'ensemble pour les décideurs
+- **Rapport Metasploit** (`rapport_metasploit.txt`) : Résultats détaillés des scans Metasploit
+
+### Personnalisation de l'Emplacement
+Pour changer l'emplacement des rapports, utilisez l'option `--output` :
+```bash
+python3 spiderintel.py example.com --output /chemin/vers/dossier
+```
+
 ---
 
 <div align="center">
