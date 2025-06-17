@@ -814,6 +814,137 @@ class ExploitSuggester:
         
         return precautions
 
+class MetasploitScanner:
+    """Scanner de vulnérabilités utilisant Metasploit"""
+    
+    def __init__(self, domain: str):
+        self.domain = domain
+        self.results = []
+        self.logger = logging.getLogger(__name__)
+    
+    def scan_with_metasploit(self) -> List[Dict[str, Any]]:
+        """Effectue un scan avec Metasploit"""
+        logger.info("🔍 Lancement du scan Metasploit...")
+        
+        try:
+            # Vérifier si msfconsole est disponible
+            if not self._check_metasploit():
+                logger.error("❌ Metasploit n'est pas installé ou n'est pas dans le PATH")
+                return []
+            
+            # Préparer le script Metasploit
+            script_content = self._generate_metasploit_script()
+            script_path = "temp/metasploit_scan.rc"
+            
+            # Créer le répertoire temp s'il n'existe pas
+            os.makedirs("temp", exist_ok=True)
+            
+            # Écrire le script
+            with open(script_path, 'w') as f:
+                f.write(script_content)
+            
+            # Exécuter le scan
+            cmd = f"msfconsole -q -r {script_path}"
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                logger.error(f"❌ Erreur lors du scan Metasploit: {result.stderr}")
+                return []
+            
+            # Analyser les résultats
+            self._parse_metasploit_output(result.stdout)
+            
+            logger.info(f"✅ Scan Metasploit terminé: {len(self.results)} vulnérabilités trouvées")
+            return self.results
+            
+        except Exception as e:
+            logger.error(f"❌ Erreur lors du scan Metasploit: {e}")
+            return []
+    
+    def _check_metasploit(self) -> bool:
+        """Vérifie si Metasploit est installé"""
+        try:
+            result = subprocess.run(['which', 'msfconsole'], capture_output=True, text=True)
+            return result.returncode == 0
+        except Exception:
+            return False
+    
+    def _generate_metasploit_script(self) -> str:
+        """Génère le script Metasploit pour le scan"""
+        return f"""
+# Configuration
+setg RHOSTS {self.domain}
+setg VERBOSE true
+
+# Scan des ports ouverts
+use auxiliary/scanner/portscan/tcp
+run
+
+# Scan des vulnérabilités web
+use auxiliary/scanner/http/http_version
+run
+
+use auxiliary/scanner/http/dir_scanner
+run
+
+use auxiliary/scanner/http/http_put
+run
+
+# Scan des vulnérabilités SSL/TLS
+use auxiliary/scanner/ssl/openssl_heartbleed
+run
+
+# Scan des vulnérabilités SMB
+use auxiliary/scanner/smb/smb_version
+run
+
+# Scan des vulnérabilités SSH
+use auxiliary/scanner/ssh/ssh_version
+run
+
+# Scan des vulnérabilités FTP
+use auxiliary/scanner/ftp/ftp_version
+run
+
+# Scan des vulnérabilités DNS
+use auxiliary/scanner/dns/dns_amp
+run
+
+# Sortie
+exit
+"""
+    
+    def _parse_metasploit_output(self, output: str) -> None:
+        """Analyse la sortie de Metasploit pour extraire les vulnérabilités"""
+        lines = output.split('\n')
+        current_vuln = None
+        
+        for line in lines:
+            line = line.strip()
+            
+            # Détection des vulnérabilités
+            if '[+]' in line:
+                vuln_info = {
+                    'name': line.split('[+]')[1].strip(),
+                    'severity': 'Medium',
+                    'description': line,
+                    'source': 'Metasploit',
+                    'details': []
+                }
+                
+                # Déterminer la sévérité
+                if any(keyword in line.lower() for keyword in ['critical', 'high', 'severe']):
+                    vuln_info['severity'] = 'High'
+                elif any(keyword in line.lower() for keyword in ['low', 'info']):
+                    vuln_info['severity'] = 'Low'
+                
+                self.results.append(vuln_info)
+                current_vuln = vuln_info
+            
+            # Ajouter des détails à la vulnérabilité courante
+            elif current_vuln and line and not line.startswith('[*]'):
+                current_vuln['details'].append(line)
+
 class RealDataReportGenerator:
     """Générateur de rapports basé sur les données réelles"""
     
@@ -1406,41 +1537,52 @@ class SpiderIntelMain:
     def __init__(self, domain: str, output_dir: str = "reports"):
         self.domain = domain
         self.output_dir = Path(output_dir)
-        self.validator = SecurityValidator()
+        self.logger = logging.getLogger(__name__)
     
     def run_complete_analysis(self) -> Dict[str, Any]:
-        """Lance l'analyse complète avec rapports basés sur les données réelles"""
-        logger.info(f"🚀 Démarrage de l'analyse complète de {self.domain}")
+        """Exécute une analyse complète avec rapports basés sur les données réelles"""
+        logger.info(f"🚀 Démarrage de l'analyse complète pour {self.domain}")
         start_time = time.time()
         
         try:
-            # Phases d'analyse (inchangées)
+            # Création du répertoire de sortie
+            domain_output_dir = self.output_dir / self.domain
+            domain_output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Phase 1: Scan OSINT
+            logger.info("🔍 Phase 1: Scan OSINT")
             osint_scanner = OSINTScanner(self.domain)
             osint_results = osint_scanner.scan_all()
             
+            # Phase 2: Scan des vulnérabilités
+            logger.info("🔍 Phase 2: Scan des vulnérabilités")
             vuln_scanner = VulnerabilityScanner(osint_results)
             vulnerabilities = vuln_scanner.scan_all()
             
+            # Phase 3: Scan Metasploit
+            logger.info("🔍 Phase 3: Scan Metasploit")
+            metasploit_scanner = MetasploitScanner(self.domain)
+            metasploit_results = metasploit_scanner.scan_with_metasploit()
+            
+            # Fusionner les résultats des vulnérabilités
+            vulnerabilities.extend([
+                VulnerabilityResult(
+                    name=v['name'],
+                    severity=v['severity'],
+                    description=v['description'],
+                    cvss_score=8.0 if v['severity'] == 'High' else 5.0,
+                    exploit_available=True,
+                    mitigation="Vérifier la configuration et appliquer les correctifs de sécurité"
+                ) for v in metasploit_results
+            ])
+            
+            # Phase 4: Suggestions d'exploitation
+            logger.info("🎯 Phase 4: Génération des suggestions d'exploitation")
             exploit_suggester = ExploitSuggester(vulnerabilities)
             exploit_suggestions = exploit_suggester.generate_exploit_suggestions()
             
-            # PHASE 4: GÉNÉRATION DES RAPPORTS BASÉS SUR LES DONNÉES RÉELLES
-            logger.info("\n" + "="*50)
-            logger.info("PHASE 4: GÉNÉRATION DES RAPPORTS INTELLIGENTS")
-            logger.info("="*50)
-            
-            # Créer le répertoire de sortie avec gestion d'erreurs
-            domain_output_dir = self.output_dir / self.domain.replace('.', '_').replace('/', '_')
-            try:
-                domain_output_dir.mkdir(parents=True, exist_ok=True)
-                logger.info(f"📁 Répertoire créé: {domain_output_dir}")
-            except Exception as e:
-                logger.error(f"❌ Erreur création répertoire: {e}")
-                domain_output_dir = Path("./reports_temp")
-                domain_output_dir.mkdir(exist_ok=True)
-            
-            # Générateur de rapports basé sur les données réelles
-            logger.info("🔍 Analyse des données collectées...")
+            # Phase 5: Génération des rapports
+            logger.info("📝 Phase 5: Génération des rapports")
             report_generator = RealDataReportGenerator(
                 self.domain, osint_results, vulnerabilities, exploit_suggestions
             )
@@ -1448,7 +1590,7 @@ class SpiderIntelMain:
             timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
             generated_reports = {}
             
-            # Génération rapport Markdown intelligent
+            # Génération rapport Markdown
             try:
                 logger.info("📝 Génération du rapport Markdown...")
                 md_report = report_generator.generate_real_data_markdown_report()
@@ -1462,7 +1604,7 @@ class SpiderIntelMain:
             except Exception as e:
                 logger.error(f"❌ Erreur génération rapport Markdown: {e}")
             
-            # Génération rapport JSON structuré
+            # Génération rapport JSON
             try:
                 logger.info("📊 Génération du rapport JSON...")
                 json_report = report_generator.generate_real_data_json_report()
@@ -1476,84 +1618,34 @@ class SpiderIntelMain:
             except Exception as e:
                 logger.error(f"❌ Erreur génération rapport JSON: {e}")
             
-            # Génération rapport HTML amélioré (optionnel)
-            try:
-                logger.info("🌐 Génération du rapport HTML...")
-                html_report = self.generate_enhanced_html_report(report_generator)
-                html_path = domain_output_dir / f"spiderintel_analysis_{timestamp}.html"
-                
-                with open(html_path, 'w', encoding='utf-8') as f:
-                    f.write(html_report)
-                generated_reports['html'] = html_path
-                logger.info(f"✅ Rapport HTML créé: {html_path}")
-                
-            except Exception as e:
-                logger.error(f"❌ Erreur génération rapport HTML: {e}")
-            
             # Génération du résumé exécutif
             try:
-                executive_summary = self.generate_executive_summary(report_generator)
-                summary_path = domain_output_dir / f"executive_summary_{timestamp}.txt"
+                logger.info("📋 Génération du résumé exécutif...")
+                summary = self.generate_executive_summary(report_generator)
+                summary_path = domain_output_dir / f"spiderintel_summary_{timestamp}.md"
                 
                 with open(summary_path, 'w', encoding='utf-8') as f:
-                    f.write(executive_summary)
+                    f.write(summary)
                 generated_reports['summary'] = summary_path
                 logger.info(f"✅ Résumé exécutif créé: {summary_path}")
                 
             except Exception as e:
-                logger.error(f"❌ Erreur génération résumé: {e}")
+                logger.error(f"❌ Erreur génération résumé exécutif: {e}")
             
-            # Résumé final avec statistiques réelles
-            end_time = time.time()
-            duration = end_time - start_time
-            
-            # Extraire les statistiques des données réelles
-            real_stats = report_generator.real_data
-            assets = real_stats['collected_assets']
-            targets = real_stats['target_analysis']
-            issues = real_stats['security_issues']
-            
-            logger.info("\n" + "="*50)
-            logger.info("🎉 ANALYSE TERMINÉE")
-            logger.info("="*50)
-            logger.info(f"⏱️  Durée totale: {duration:.2f} secondes")
-            logger.info(f"📁 Rapports sauvegardés dans: {domain_output_dir}")
-            logger.info(f"🎯 Cibles analysées: {targets['total_targets']}")
-            logger.info(f"📊 Découvertes:")
-            logger.info(f"   - Sous-domaines: {len(assets['subdomains'])}")
-            logger.info(f"   - IPs: {len(assets['ips'])}")
-            logger.info(f"   - Emails: {len(assets['emails'])}")
-            logger.info(f"   - Technologies: {len(assets['technologies'])}")
-            logger.info(f"   - Problèmes de sécurité: {len(vulnerabilities)} ({len(issues)} catégories)")
-            
-            # Afficher les catégories de problèmes trouvés
-            if issues:
-                logger.info(f"🔍 Catégories de problèmes identifiés:")
-                for category, problems in issues.items():
-                    logger.info(f"   - {category}: {len(problems)} problème(s)")
-            
-            # Afficher les rapports générés
-            logger.info(f"📄 Rapports générés:")
-            for report_type, path in generated_reports.items():
-                logger.info(f"   - {report_type.upper()}: {path}")
+            # Calcul du temps d'exécution
+            execution_time = time.time() - start_time
+            logger.info(f"⏱️ Temps d'exécution total: {execution_time:.2f} secondes")
             
             return {
                 'osint_results': osint_results,
                 'vulnerabilities': vulnerabilities,
                 'exploit_suggestions': exploit_suggestions,
-                'real_data_analysis': real_stats,
-                'generated_reports': generated_reports,
-                'duration': duration,
-                'summary_statistics': {
-                    'targets_scanned': targets['total_targets'],
-                    'assets_discovered': len(assets['subdomains']) + len(assets['ips']) + len(assets['emails']),
-                    'security_issues': len(vulnerabilities),
-                    'issue_categories': len(issues)
-                }
+                'reports': generated_reports,
+                'execution_time': execution_time
             }
             
         except Exception as e:
-            logger.error(f"❌ Erreur lors de l'analyse: {e}")
+            logger.error(f"❌ Erreur lors de l'analyse complète: {e}")
             raise
     
     def generate_enhanced_html_report(self, report_generator) -> str:
