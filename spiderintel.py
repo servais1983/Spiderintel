@@ -167,20 +167,20 @@ class SecureHTTPSession:
     def get(self, url: str, **kwargs) -> Optional[requests.Response]:
         """Requête GET avec gestion des erreurs"""
         try:
-            # Nettoie l'URL si nécessaire
-            if url.startswith(('http://', 'https://')):
-                url = url.split('://', 1)[1]
-            
-            # Vérifie d'abord la résolution DNS
-            try:
-                socket.gethostbyname(url.split('/')[0])
-            except socket.gaierror:
-                logger.warning(f"⚠ Impossible de résoudre le nom de domaine: {url}")
-                return None
-
-            # Ajoute le protocole si nécessaire
+            # Ajoute le protocole si manquant
             if not url.startswith(('http://', 'https://')):
                 url = f"https://{url}"
+
+            # Extrait le hostname pour la résolution DNS
+            from urllib.parse import urlparse
+            hostname = urlparse(url).hostname or ''
+
+            # Vérifie d'abord la résolution DNS
+            try:
+                socket.gethostbyname(hostname)
+            except socket.gaierror:
+                logger.warning(f"⚠ Impossible de résoudre le nom de domaine: {hostname}")
+                return None
 
             response = self.session.get(url, timeout=self.timeout, **kwargs)
             return response
@@ -282,9 +282,10 @@ class OSINTScanner:
                         self.results.ips.add(ip)
                         if full_domain not in self.results.ports:
                             self.results.ports[full_domain] = []
-            except:
+            except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer,
+                    dns.resolver.Timeout, dns.exception.DNSException):
                 pass
-        
+
         # Utilisation de threads pour paralléliser
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             list(tqdm(
@@ -439,9 +440,9 @@ class OSINTScanner:
                     # Vérifier si le profil existe vraiment
                     if not any(x in response.text.lower() for x in ['not found', '404', 'does not exist']):
                         self.results.social_media.add(f"{platform}: {url}")
-            except:
-                pass
-        
+            except Exception as e:
+                logger.debug(f"   Réseau social non trouvé pour {platform}: {e}")
+
         logger.info(f"✅ Réseaux sociaux: {len(self.results.social_media)} profils trouvés")
     
     def scan_all(self) -> OSINTResult:
@@ -676,9 +677,9 @@ class VulnerabilityScanner:
                     )
                     self.vulnerabilities.append(vuln)
             
-            except:
-                pass
-    
+            except Exception as e:
+                logger.debug(f"   Fichier sensible non accessible {file_path}: {e}")
+
     def scan_ssl_configuration(self, domain: str) -> None:
         """Vérifie la configuration SSL"""
         try:
@@ -899,9 +900,9 @@ class MetasploitScanner:
                 f.write(script_content)
             
             # Exécuter le scan avec timeout
-            cmd = f"msfconsole -q -r {script_path}"
+            cmd = ['msfconsole', '-q', '-r', script_path]
             try:
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=self.timeout)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout)
             except subprocess.TimeoutExpired:
                 logger.warning("⚠️ Le scan Metasploit a dépassé le délai maximum")
                 return self.results
@@ -1859,7 +1860,7 @@ class SpiderIntelMain:
                     </div>
                     <div class="col-md-3">
                         <div class="stat-card text-center">
-                            <h3>{len(vulnerabilities)}</h3>
+                            <h3>{sum(len(p) for p in issues.values())}</h3>
                             <p>Problèmes Détectés</p>
                         </div>
                     </div>
@@ -2023,7 +2024,7 @@ SYNTHÈSE DES DÉCOUVERTES
 ------------------------
 • Cibles analysées: {targets['total_targets']}
 • Assets découverts: {len(assets['subdomains']) + len(assets['ips']) + len(assets['emails'])}
-• Problèmes de sécurité: {len(vulnerabilities)}
+• Problèmes de sécurité: {len(report_generator.vulnerabilities)}
 • Catégories de risques: {len(issues)}
 
 NIVEAU DE RISQUE GLOBAL
@@ -2076,7 +2077,7 @@ RECOMMANDATIONS
 
 ---
 Généré par SpiderIntel v2.0.0
-Basé sur {len(vulnerabilities)} découvertes de sécurité
+Basé sur {len(report_generator.vulnerabilities)} découvertes de sécurité
 """
         
         return summary
@@ -2176,5 +2177,4 @@ ou pour lesquels vous avez une autorisation écrite explicite.
         sys.exit(1)
 
 if __name__ == "__main__":
-    main()
     main()
