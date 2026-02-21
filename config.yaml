@@ -57,6 +57,14 @@ logging:
   backup_count: 5
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
   date_format: "%Y-%m-%d %H:%M:%S"
+  file_logging: true
+  console_logging: true
+  log_rotation: true
+  loggers:
+    osint: "INFO"
+    vulnerability: "INFO"
+    exploitation: "WARNING"
+    reporting: "INFO"
 
 # Configuration de la sécurité
 security:
@@ -72,6 +80,19 @@ security:
     max_attempts: 3
     delay: 5
     backoff: 2
+  input_validation: true
+  domain_whitelist: []
+  domain_blacklist: []
+  rate_limiting:
+    requests_per_minute: 60
+    burst_limit: 10
+  proxy:
+    enabled: false
+    proxy_list: []
+    rotate_proxies: false
+  ssl:
+    verify_certificates: false
+    custom_ca_bundle: ""
 
 # Configuration OSINT
 osint:
@@ -165,57 +186,18 @@ reporting:
   detailed_findings: true
   executive_summary: true
   technical_details: true
-  
+
   # Graphiques
   visualization:
     network_graph: true
     vulnerability_chart: true
     timeline_analysis: false
-    
+
   # Export
   export:
     csv_data: true
     json_raw: true
     pdf_report: false  # Nécessite wkhtmltopdf
-
-# Configuration du logging
-logging:
-  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
-  file_logging: true
-  console_logging: true
-  log_rotation: true
-  max_log_size: "10MB"
-  backup_count: 5
-  
-  # Loggers spécifiques
-  loggers:
-    osint: "INFO"
-    vulnerability: "INFO"
-    exploitation: "WARNING"
-    reporting: "INFO"
-
-# Paramètres de sécurité
-security:
-  # Validation des entrées
-  input_validation: true
-  domain_whitelist: []
-  domain_blacklist: []
-  
-  # Limites de rate limiting
-  rate_limiting:
-    requests_per_minute: 60
-    burst_limit: 10
-    
-  # Proxy et anonymisation
-  proxy:
-    enabled: false
-    proxy_list: []
-    rotate_proxies: false
-    
-  # SSL/TLS
-  ssl:
-    verify_certificates: false
-    custom_ca_bundle: ""
 
 # Configuration des wordlists
 wordlists:

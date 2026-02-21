@@ -1,4 +1,5 @@
 import json
+import html
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any
@@ -235,7 +236,7 @@ class ReportGenerator:
                 
                 // Graphique des technologies
                 new Chart(document.getElementById('techChart'), {
-                    type: 'horizontalBar',
+                    type: 'bar',
                     data: {
                         labels: {tech_labels},
                         datasets: [{
@@ -246,6 +247,7 @@ class ReportGenerator:
                     },
                     options: {
                         responsive: true,
+                        indexAxis: 'y',
                         plugins: {
                             title: {
                                 display: true,
@@ -297,25 +299,30 @@ class ReportGenerator:
         vulnerabilities_rows = []
         for vuln in self.vulnerabilities:
             row = f"""
-            <tr class="vulnerability-{vuln.severity.lower()}">
-                <td>{vuln.name}</td>
-                <td>{vuln.severity}</td>
-                <td>{vuln.description}</td>
+            <tr class="vulnerability-{html.escape(vuln.severity.lower())}">
+                <td>{html.escape(vuln.name)}</td>
+                <td>{html.escape(vuln.severity)}</td>
+                <td>{html.escape(vuln.description)}</td>
                 <td>{vuln.cvss_score}</td>
-                <td>{vuln.mitigation}</td>
+                <td>{html.escape(vuln.mitigation)}</td>
             </tr>
             """
             vulnerabilities_rows.append(row)
-        
+
         # Table des exploits
         exploits_rows = []
         for exploit in self.exploit_suggestions:
+            commands = exploit.get('commands', [])
+            if isinstance(commands, list):
+                commands_str = html.escape('\n'.join(commands))
+            else:
+                commands_str = html.escape(str(commands))
             row = f"""
             <tr>
-                <td>{exploit['vulnerability']}</td>
-                <td>{exploit['method']}</td>
-                <td><pre>{exploit['commands']}</pre></td>
-                <td>{exploit['risk_level']}</td>
+                <td>{html.escape(exploit.get('vulnerability', ''))}</td>
+                <td>{html.escape(', '.join(exploit.get('techniques', exploit.get('tools', []))))}</td>
+                <td><pre>{commands_str}</pre></td>
+                <td>{html.escape(exploit.get('severity', 'Medium'))}</td>
             </tr>
             """
             exploits_rows.append(row)
@@ -388,13 +395,21 @@ class ReportGenerator:
         # Suggestions d'exploitation
         report.append("\n## 💡 Suggestions d'Exploitation")
         for exploit in self.exploit_suggestions:
-            report.append(f"\n### {exploit['vulnerability']}")
-            report.append(f"- **Méthode:** {exploit['method']}")
-            report.append(f"- **Commandes:**")
-            report.append("```bash")
-            report.append(exploit['commands'])
-            report.append("```")
-            report.append(f"- **Niveau de risque:** {exploit['risk_level']}")
+            report.append(f"\n### {exploit.get('vulnerability', 'Inconnu')}")
+            techniques = exploit.get('techniques', exploit.get('tools', []))
+            if techniques:
+                report.append(f"- **Techniques:** {', '.join(techniques)}")
+            commands = exploit.get('commands', [])
+            if commands:
+                report.append("- **Commandes:**")
+                report.append("```bash")
+                if isinstance(commands, list):
+                    for cmd in commands:
+                        report.append(cmd)
+                else:
+                    report.append(str(commands))
+                report.append("```")
+            report.append(f"- **Sévérité:** {exploit.get('severity', 'Medium')}")
         
         return "\n".join(report)
     
