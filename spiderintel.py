@@ -38,14 +38,13 @@ import threading
 import queue
 import hashlib
 import socket
-from dataclasses import dataclass
+import ipaddress
+import tempfile
+from dataclasses import asdict, dataclass
 from typing import Dict, List, Set, Optional, Any
 import logging
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
-
-# Désactiver les avertissements SSL
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Logo ASCII de SpiderIntel
 SPIDERINTEL_LOGO = """
@@ -56,6 +55,8 @@ SPIDERINTEL_LOGO = """
 ███████║██║     ██║██████╔╝███████╗██║  ██║    ██║██║ ╚████║   ██║   ███████╗███████╗
 ╚══════╝╚═╝     ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝    ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚══════╝
 """
+
+__version__ = "2.0.0"
 
 def print_banner():
     """Affiche la bannière de SpiderIntel"""
@@ -128,16 +129,35 @@ class SecurityValidator:
         """Valide le format du domaine"""
         if not domain or len(domain) > 253:
             return False
+        domain = domain.rstrip(".")
         pattern = r'^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$'
-        return bool(re.match(pattern, domain))
+        return bool(re.fullmatch(pattern, domain))
     
     @staticmethod
     def validate_ip(ip: str) -> bool:
         """Valide le format de l'IP"""
-        pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
-        if not re.match(pattern, ip):
+        try:
+            ipaddress.IPv4Address(ip)
+            return True
+        except ValueError:
             return False
-        return all(0 <= int(x) <= 255 for x in ip.split('.'))
+
+    @classmethod
+    def normalize_target(cls, target: str) -> str:
+        """Normalise une cible et refuse les URL ou ports ambigus."""
+        if not isinstance(target, str):
+            raise ValueError("La cible doit être une chaîne de caractères")
+
+        normalized = target.strip().lower().rstrip(".")
+        if not normalized:
+            raise ValueError("La cible est obligatoire")
+        if "://" in normalized or any(char in normalized for char in "/?#@"):
+            raise ValueError("Utilisez un domaine ou une adresse IP, sans URL ni chemin")
+        if ":" in normalized and not cls.validate_ip(normalized):
+            raise ValueError("Les ports ne doivent pas être inclus dans la cible")
+        if not (cls.validate_domain(normalized) or cls.validate_ip(normalized)):
+            raise ValueError(f"Cible invalide: {target}")
+        return normalized
     
     @staticmethod
     def validate_email(email: str) -> bool:
@@ -148,9 +168,10 @@ class SecurityValidator:
 class SecureHTTPSession:
     """Session HTTP sécurisée avec gestion des erreurs"""
     
-    def __init__(self, timeout=10, max_retries=2):
+    def __init__(self, timeout=10, max_retries=2, verify_tls=True):
         self.session = requests.Session()
-        self.session.verify = False  # Désactive la vérification SSL
+        self.session.verify = verify_tls
+        self.session.headers.update({"User-Agent": "SpiderIntel/2.0.0"})
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_strategy = Retry(
@@ -161,9 +182,6 @@ class SecureHTTPSession:
         self.session.mount('http://', HTTPAdapter(max_retries=self.retry_strategy))
         self.session.mount('https://', HTTPAdapter(max_retries=self.retry_strategy))
         
-        # Supprime les avertissements SSL
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    
     def get(self, url: str, **kwargs) -> Optional[requests.Response]:
         """Requête GET avec gestion des erreurs"""
         try:
@@ -193,8 +211,8 @@ class OSINTScanner:
     """Scanner OSINT avec corrections"""
     
     def __init__(self, domain: str):
-        self.domain = self.clean_domain(domain)
-        self.root_domain = self.get_root_domain(domain)
+        self.domain = SecurityValidator.normalize_target(self.clean_domain(domain))
+        self.root_domain = self.get_root_domain(self.domain)
         self.http_session = SecureHTTPSession()
         self.validator = SecurityValidator()
         self.results = OSINTResult(
@@ -215,6 +233,8 @@ class OSINTScanner:
     
     def get_root_domain(self, domain: str) -> str:
         """Extrait le domaine racine"""
+        if SecurityValidator.validate_ip(domain):
+            return domain
         extracted = tldextract.extract(domain)
         return f"{extracted.domain}.{extracted.suffix}"
     
@@ -498,6 +518,9 @@ class VulnerabilityScanner:
         logger.info("🔍 Scan de vulnérabilités Nmap...")
         
         for ip in list(self.osint_results.ips)[:5]:  # Limiter à 5 IPs
+            if not SecurityValidator.validate_ip(ip):
+                logger.warning("Adresse IP ignorée car invalide: %s", ip)
+                continue
             try:
                 # Scan initial rapide des ports
                 initial_cmd = [
@@ -888,24 +911,22 @@ class MetasploitScanner:
                 logger.error("❌ Metasploit n'est pas installé ou n'est pas dans le PATH")
                 return []
             
-            # Préparer le script Metasploit
             script_content = self._generate_metasploit_script()
-            script_path = "temp/metasploit_scan.rc"
-            
-            # Créer le répertoire temp s'il n'existe pas
-            os.makedirs("temp", exist_ok=True)
-            
-            # Écrire le script
-            with open(script_path, 'w') as f:
-                f.write(script_content)
-            
-            # Exécuter le scan avec timeout
-            cmd = ['msfconsole', '-q', '-r', script_path]
-            try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout)
-            except subprocess.TimeoutExpired:
-                logger.warning("⚠️ Le scan Metasploit a dépassé le délai maximum")
-                return self.results
+            with tempfile.TemporaryDirectory(prefix="spiderintel-") as temp_dir:
+                script_path = Path(temp_dir) / "metasploit_scan.rc"
+                script_path.write_text(script_content, encoding="utf-8")
+                cmd = ['msfconsole', '-q', '-r', str(script_path)]
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=self.timeout,
+                        check=False
+                    )
+                except subprocess.TimeoutExpired:
+                    logger.warning("⚠️ Le scan Metasploit a dépassé le délai maximum")
+                    return self.results
             
             if result.returncode != 0:
                 logger.error(f"❌ Erreur lors du scan Metasploit: {result.stderr}")
@@ -923,11 +944,7 @@ class MetasploitScanner:
     
     def _check_metasploit(self) -> bool:
         """Vérifie si Metasploit est installé"""
-        try:
-            result = subprocess.run(['which', 'msfconsole'], capture_output=True, text=True)
-            return result.returncode == 0
-        except Exception:
-            return False
+        return shutil.which("msfconsole") is not None
     
     def _generate_metasploit_script(self) -> str:
         """Génère le script Metasploit pour le scan"""
@@ -1298,7 +1315,7 @@ class ReportGenerator:
         
         # Vulnérabilités (uniquement si des vulnérabilités existent)
         if self.vulnerabilities:
-            report.append("\n## ⚠️ Vulnérabilités")
+            report.append("\n## Vulnérabilités Identifiées")
             for vuln in self.vulnerabilities:
                 report.append(f"\n### {vuln.name}")
                 report.append(f"- **Sévérité:** {vuln.severity}")
@@ -1325,7 +1342,53 @@ class ReportGenerator:
                 if 'legal_notice' in exploit:
                     report.append(f"- **⚠️ Avertissement:** {exploit['legal_notice']}")
         
+        report.append("\n## Recommandations de Sécurité")
+        report.append("- Corriger en priorité les vulnérabilités critiques et élevées.")
+        report.append("- Valider les résultats manuellement avant toute remédiation.")
+        report.append("- Conserver les rapports dans un emplacement à accès restreint.")
+
         return "\n".join(report)
+
+    def calculate_risk_level(self) -> str:
+        """Calcule le niveau de risque maximal observé."""
+        ranking = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
+        highest = max(
+            (ranking.get(getattr(vuln, "severity", "Low"), 1) for vuln in self.vulnerabilities),
+            default=1
+        )
+        return next(level for level, rank in ranking.items() if rank == highest)
+
+    def save_reports(self, output_dir: Path) -> Dict[str, Path]:
+        """Sauvegarde les rapports Markdown et JSON."""
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+        main_path = output_dir / f"spiderintel_report_{timestamp}.md"
+        main_path.write_text(self.generate_comprehensive_report(), encoding="utf-8")
+
+        json_path = output_dir / f"spiderintel_report_{timestamp}.json"
+        json_payload = {
+            "domain": self.domain,
+            "generated_at": datetime.now().astimezone().isoformat(),
+            "risk_level": self.calculate_risk_level(),
+            "osint_results": {
+                "subdomains": sorted(self.osint_results.subdomains),
+                "emails": sorted(self.osint_results.emails),
+                "ips": sorted(self.osint_results.ips),
+                "technologies": sorted(self.osint_results.technologies),
+                "ports": self.osint_results.ports,
+                "certificates": self.osint_results.certificates,
+                "social_media": sorted(self.osint_results.social_media),
+            },
+            "vulnerabilities": [asdict(vuln) for vuln in self.vulnerabilities],
+            "exploit_suggestions": self.exploit_suggestions,
+        }
+        json_path.write_text(
+            json.dumps(json_payload, indent=2, ensure_ascii=False),
+            encoding="utf-8"
+        )
+        return {"main_report": main_path, "json_report": json_path}
     
     def generate_html_report(self) -> str:
         """Génère un rapport HTML complet avec uniquement les données réelles"""
@@ -1685,14 +1748,26 @@ class ReportGenerator:
 class SpiderIntelMain:
     """Classe principale corrigée"""
     
-    def __init__(self, domain: str, output_dir: str = "reports", scan_depth: str = "quick"):
-        self.domain = domain
-        self.output_dir = Path(output_dir)
+    def __init__(
+        self,
+        domain: str,
+        output_dir: str = "reports",
+        scan_depth: str = "quick",
+        authorized: bool = False
+    ):
+        self.domain = SecurityValidator.normalize_target(domain)
+        self.output_dir = Path(output_dir).expanduser().resolve()
         self.logger = logging.getLogger(__name__)
         self.scan_depth = scan_depth
+        self.authorized = authorized
     
     def run_complete_analysis(self) -> Dict[str, Any]:
         """Exécute une analyse complète avec rapports basés sur les données réelles"""
+        if not self.authorized:
+            raise PermissionError(
+                "Autorisation explicite requise. Utilisez --authorized uniquement "
+                "si vous êtes autorisé à analyser cette cible."
+            )
         logger.info(f"🚀 Démarrage de l'analyse complète pour {self.domain}")
         start_time = time.time()
         
@@ -2096,10 +2171,9 @@ def check_dependencies():
     missing_tools = []
     
     for tool, package in required_tools.items():
-        try:
-            subprocess.run(['which', tool], check=True, capture_output=True)
+        if shutil.which(tool) is not None:
             logger.info(f"✅ {tool} trouvé")
-        except subprocess.CalledProcessError:
+        else:
             logger.warning(f"⚠️ {tool} manquant")
             missing_tools.append(package)
     
@@ -2118,26 +2192,36 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Exemples d'utilisation:
-  python spiderintel.py example.com
-  python spiderintel.py example.com --output /tmp/reports
-  python spiderintel.py example.com --check-deps
+  spiderintel example.com --authorized
+  spiderintel example.com --authorized --output /tmp/reports
+  spiderintel --check-deps
 
-⚠️  AVERTISSEMENT LÉGAL:
+AVERTISSEMENT LÉGAL:
 Cet outil est destiné uniquement aux tests de sécurité autorisés.
 N'utilisez cet outil que sur des systèmes dont vous êtes propriétaire
 ou pour lesquels vous avez une autorisation écrite explicite.
         """
     )
     
-    parser.add_argument('domain', help='Domaine cible à analyser')
+    parser.add_argument('domain', nargs='?', help='Domaine cible à analyser')
     parser.add_argument('--output', '-o', default='reports', 
                        help='Répertoire de sortie des rapports (défaut: reports)')
     parser.add_argument('--check-deps', action='store_true',
                        help='Vérifier les dépendances seulement')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Mode verbeux')
+    parser.add_argument(
+        '--version',
+        action='version',
+        version=f'%(prog)s {__version__}'
+    )
     parser.add_argument('--scan-depth', choices=['quick', 'normal', 'deep'],
                        default='quick', help='Niveau de profondeur du scan (défaut: quick)')
+    parser.add_argument(
+        '--authorized',
+        action='store_true',
+        help="Confirme que vous disposez d'une autorisation écrite pour analyser la cible"
+    )
     
     args = parser.parse_args()
     
@@ -2157,10 +2241,23 @@ ou pour lesquels vous avez une autorisation écrite explicite.
     if args.check_deps:
         logger.info("✅ Vérification des dépendances terminée")
         sys.exit(0)
+
+    if not args.domain:
+        parser.error("un domaine cible est requis sauf avec --check-deps")
+
+    if not args.authorized:
+        parser.error(
+            "--authorized est obligatoire pour confirmer que l'analyse est autorisée"
+        )
     
     try:
         # Lancement de l'analyse
-        spider_intel = SpiderIntelMain(args.domain, args.output, args.scan_depth)
+        spider_intel = SpiderIntelMain(
+            args.domain,
+            args.output,
+            args.scan_depth,
+            authorized=args.authorized
+        )
         results = spider_intel.run_complete_analysis()
         
         logger.info("\n🎯 Analyse terminée avec succès!")

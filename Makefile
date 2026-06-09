@@ -2,13 +2,13 @@
 
 # Variables
 PYTHON := python3
-VENV := venv
+VENV := .venv
 PIP := $(VENV)/bin/pip
 PYTHON_VENV := $(VENV)/bin/python
 VERSION := 2.0.0
 
 # Commandes principales
-.PHONY: all install clean test update check-deps status
+.PHONY: all install clean test lint update check-deps status
 
 all: check-kali install
 
@@ -48,9 +48,13 @@ clean:
 	@find . -type d -name "temp" -exec rm -rf {} +
 
 # Tests
-test: check-kali
+test:
 	@echo "Exécution des tests..."
 	@$(PYTHON_VENV) -m pytest tests/ -v
+
+lint:
+	@echo "Exécution du lint..."
+	@$(PYTHON_VENV) -m ruff check spiderintel.py report_generator.py tests
 
 # Mise à jour
 update: check-kali
@@ -78,7 +82,8 @@ help:
 	@echo "  make install    - Installation de SpiderIntel"
 	@echo "  make clean      - Nettoyage des fichiers temporaires"
 	@echo "  make test       - Exécution des tests"
+	@echo "  make lint       - Vérification statique du code"
 	@echo "  make update     - Mise à jour de SpiderIntel"
 	@echo "  make check-deps - Vérification des dépendances"
 	@echo "  make status     - Vérification du statut"
-	@echo "  make help       - Affichage de cette aide" 
+	@echo "  make help       - Affichage de cette aide"

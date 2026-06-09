@@ -37,6 +37,7 @@ install_kali_tools() {
     echo -e "${BLUE}Installation des outils Kali requis...${NC}"
     
     local tools=(
+        "python3-venv"
         "nmap"
         "whatweb"
         "theharvester"
@@ -77,12 +78,23 @@ setup_main_script() {
     echo -e "${BLUE}Configuration du script principal...${NC}"
     
     if [ -f "spiderintel.sh" ]; then
-        chmod +x spiderintel.sh
+        chmod +x install.sh spiderintel.sh
         echo -e "${GREEN}Script principal configuré${NC}"
     else
         echo -e "${RED}ERREUR: Script principal non trouvé${NC}"
         exit 1
     fi
+}
+
+install_python_package() {
+    echo -e "${BLUE}Installation du paquet Python...${NC}"
+
+    if [ ! -d ".venv" ]; then
+        python3 -m venv .venv
+    fi
+
+    .venv/bin/python -m pip install --upgrade pip
+    .venv/bin/python -m pip install -e .
 }
 
 # Installation principale
@@ -94,6 +106,7 @@ main() {
     
     # Installation des outils
     install_kali_tools
+    install_python_package
     
     # Configuration
     setup_directories
@@ -101,11 +114,11 @@ main() {
     
     echo -e "\n${GREEN}Installation terminée!${NC}"
     echo -e "\nUtilisation:"
-    echo -e "${YELLOW}./spiderintel.sh example.com${NC}"
+    echo -e "${YELLOW}./spiderintel.sh example.com --authorized${NC}"
 }
 
 # Gestion des signaux
 trap 'echo -e "${RED}Installation interrompue${NC}"; exit 1' INT TERM
 
 # Lancement
-main "$@" 
+main "$@"
