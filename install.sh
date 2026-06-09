@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SpiderIntel v2.1.0 - Script d'installation pour Kali Linux
+# SpiderIntel v2.1.1 - Script d'installation pour Kali Linux
 # Sécurité renforcée et auditée
 
 set -euo pipefail
@@ -41,7 +41,7 @@ install_kali_tools() {
         "nmap"
         "whatweb"
         "theharvester"
-        "dnsrecon"
+        "bind9-dnsutils"
         "dirb"
         "nikto"
         "sqlmap"
@@ -99,7 +99,7 @@ install_python_package() {
 
 # Installation principale
 main() {
-    echo -e "${BLUE}SpiderIntel v2.1.0 - Installation${NC}"
+    echo -e "${BLUE}SpiderIntel v2.1.1 - Installation${NC}"
     
     # Vérification de Kali Linux
     check_kali_linux

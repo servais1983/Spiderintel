@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spiderintel"
-version = "2.1.0"
+version = "2.1.1"
 description = "Authorized OSINT and vulnerability assessment CLI for Kali Linux"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-SpiderIntel v2.1.0 - Script de test et validation
+SpiderIntel v2.1.1 - Script de test et validation
 Teste les principales fonctionnalités de SpiderIntel
 """
 
@@ -25,6 +25,7 @@ try:
         OSINTScanner, 
         VulnerabilityScanner, 
         ExploitSuggester,
+        MetasploitScanner,
         ReportGenerator,
         RealDataReportGenerator,
         SpiderIntelMain,
@@ -138,6 +139,12 @@ class TestOSINTScanner(unittest.TestCase):
             with self.subTest(input_domain=input_domain):
                 result = self.scanner.get_root_domain(input_domain)
                 self.assertEqual(result, expected)
+
+    def test_target_is_seeded_in_results(self):
+        self.assertIn("example.com", self.scanner.results.subdomains)
+
+        ip_scanner = OSINTScanner("192.0.2.10")
+        self.assertIn("192.0.2.10", ip_scanner.results.ips)
     
     @patch('requests.Session.get')
     def test_scan_crtsh(self, mock_get):
@@ -322,6 +329,24 @@ class TestExploitSuggester(unittest.TestCase):
         required_keys = ['vulnerability', 'severity', 'tools', 'techniques', 'commands', 'precautions', 'legal_notice']
         for key in required_keys:
             self.assertIn(key, suggestion)
+
+class TestMetasploitScanner(unittest.TestCase):
+    def test_parser_ignores_informational_success_messages(self):
+        scanner = MetasploitScanner("example.com")
+        scanner._parse_metasploit_output(
+            "[+] 127.0.0.1:80 - TCP OPEN\n"
+            "[+] 127.0.0.1:80 - HTTP Server version detected\n"
+        )
+
+        self.assertEqual(scanner.results, [])
+
+    def test_parser_keeps_explicit_vulnerability(self):
+        scanner = MetasploitScanner("example.com")
+        scanner._parse_metasploit_output(
+            "[+] 127.0.0.1:443 - Target is vulnerable to CVE-2024-0001\n"
+        )
+
+        self.assertEqual(len(scanner.results), 1)
 
 class TestReportGenerator(unittest.TestCase):
     """Tests pour ReportGenerator"""
@@ -616,7 +641,7 @@ def run_quick_functionality_test():
 
 def main():
     """Fonction principale de test"""
-    print("🕷️  SpiderIntel v2.1.0 - Suite de Tests et Validation")
+    print("🕷️  SpiderIntel v2.1.1 - Suite de Tests et Validation")
     print("=" * 60)
     
     # Vérifications des dépendances
@@ -672,7 +697,7 @@ def main():
     
     if not deps_ok:
         print("1. Installez les dépendances système manquantes")
-        print("   sudo apt install nmap whatweb theharvester dnsutils whois")
+        print("   sudo apt install nmap whatweb theharvester bind9-dnsutils whois")
     
     if not python_deps_ok:
         print("2. Installez les dépendances Python manquantes")

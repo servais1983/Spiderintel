@@ -348,7 +348,7 @@ class ReportGenerator:
         report.append("# 🕷️ SpiderIntel - Rapport d'Analyse Complet")
         report.append(f"**Domaine cible:** {self.domain}")
         report.append(f"**Date d'analyse:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        report.append("**Version:** SpiderIntel v2.1.0")
+        report.append("**Version:** SpiderIntel v2.1.1")
         report.append("\n" + "="*80 + "\n")
         
         # Résumé exécutif

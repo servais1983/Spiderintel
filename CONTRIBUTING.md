@@ -22,6 +22,8 @@ python -m pytest --cov=spiderintel --cov-report=term-missing
 python -m pip check
 ```
 
+Pour les changements touchant les adaptateurs d’outils externes, exécutez également le smoke test Kali documenté dans le README. La cible Metasploit est requise lorsque son générateur ou son parseur est modifié.
+
 Chaque correction fonctionnelle doit inclure un test de non-régression. Les changements liés aux outils Kali doivent préciser les versions testées et les commandes exécutées.
 
 ## Pull requests

@@ -1,0 +1,22 @@
+name: Kali integration
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  kali-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Kali integration image
+        run: docker build --target kali-integration -f docker/kali-integration.Dockerfile -t spiderintel-kali .
+      - name: Run local-only integration smoke test
+        run: docker run --rm --cap-add=NET_RAW --add-host=example.test:127.0.0.1 spiderintel-kali
