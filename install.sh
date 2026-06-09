@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SpiderIntel v2.0.0 - Script d'installation pour Kali Linux
+# SpiderIntel v2.1.0 - Script d'installation pour Kali Linux
 # Sécurité renforcée et auditée
 
 set -euo pipefail
@@ -99,7 +99,7 @@ install_python_package() {
 
 # Installation principale
 main() {
-    echo -e "${BLUE}SpiderIntel v2.0.0 - Installation${NC}"
+    echo -e "${BLUE}SpiderIntel v2.1.0 - Installation${NC}"
     
     # Vérification de Kali Linux
     check_kali_linux

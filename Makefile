@@ -1,11 +1,11 @@
-# SpiderIntel v2.0.0 - Makefile pour Kali Linux
+# SpiderIntel v2.1.0 - Makefile pour Kali Linux
 
 # Variables
 PYTHON := python3
 VENV := .venv
 PIP := $(VENV)/bin/pip
 PYTHON_VENV := $(VENV)/bin/python
-VERSION := 2.0.0
+VERSION := 2.1.0
 
 # Commandes principales
 .PHONY: all install clean test lint update check-deps status
