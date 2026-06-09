@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SpiderIntel v2.1.0 - Script de lancement pour Kali Linux
+# SpiderIntel v2.1.1 - Script de lancement pour Kali Linux
 # Sécurité renforcée et auditée
 
 set -euo pipefail
@@ -40,7 +40,7 @@ check_kali_tools() {
         "nmap:nmap"
         "whatweb:whatweb"
         "theHarvester:theharvester"
-        "dig:dnsutils"
+        "dig:bind9-dnsutils"
         "msfconsole:metasploit-framework"
     )
     
@@ -94,7 +94,7 @@ check_deps() {
 # Statut
 status() {
     echo -e "${BLUE}Statut de SpiderIntel:${NC}"
-    echo -e "Version: ${GREEN}2.1.0${NC}"
+    echo -e "Version: ${GREEN}2.1.1${NC}"
     echo -e "Système: ${GREEN}Kali Linux${NC}"
     check_kali_tools
 }

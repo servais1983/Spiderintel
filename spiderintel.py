@@ -4,7 +4,7 @@
 """
 SpiderIntel - Outil d'OSINT et d'analyse de vulnérabilités automatisé
 Auteur: Professional Security Tools
-Version: 2.1.0
+Version: 2.1.1
 Licence: MIT
 """
 
@@ -57,7 +57,7 @@ SPIDERINTEL_LOGO = """
 ╚══════╝╚═╝     ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝    ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚══════╝
 """
 
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 
 def print_banner():
     """Affiche la bannière de SpiderIntel"""
@@ -346,6 +346,10 @@ class OSINTScanner:
             certificates={},
             social_media=set()
         )
+        if self.validator.validate_domain(self.domain):
+            self.results.subdomains.add(self.domain)
+        elif self.validator.validate_ip(self.domain):
+            self.results.ips.add(self.domain)
     
     def clean_domain(self, domain: str) -> str:
         """Nettoie et normalise le domaine"""
@@ -1272,6 +1276,21 @@ exit
             
             # Détection des vulnérabilités
             if '[+]' in line:
+                normalized_line = line.lower()
+                vulnerability_markers = (
+                    " vulnerable",
+                    "vulnerability",
+                    "cve-",
+                    "exploitable",
+                    "successfully exploited",
+                )
+                if (
+                    "not vulnerable" in normalized_line
+                    or not any(marker in normalized_line for marker in vulnerability_markers)
+                ):
+                    current_vuln = None
+                    continue
+
                 vuln_info = {
                     'name': line.split('[+]')[1].strip(),
                     'severity': 'Medium',

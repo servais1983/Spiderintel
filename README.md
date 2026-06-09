@@ -6,7 +6,7 @@ Le projet doit uniquement être utilisé sur des systèmes dont vous êtes propr
 
 ## Statut du projet
 
-Version actuelle : `2.1.0`
+Version actuelle : `2.1.1`
 
 Statut : bêta opérationnelle. Le cœur du projet est testable et installable, mais une validation dans votre environnement Kali, avec vos procédures de sécurité et vos contraintes réseau, reste nécessaire avant un usage professionnel régulier.
 
@@ -190,6 +190,24 @@ python -m ruff check spiderintel.py report_generator.py tests
 
 La CI GitHub exécute les contrôles sur Python 3.10, 3.11 et 3.12.
 
+Un smoke test Kali reproductible installe et exécute réellement Nmap, WhatWeb, TheHarvester et `dig` contre une cible HTTP locale :
+
+```bash
+docker build --target kali-integration -f docker/kali-integration.Dockerfile -t spiderintel-kali .
+docker run --rm --cap-add=NET_RAW --add-host=example.test:127.0.0.1 spiderintel-kali
+```
+
+Ce test ne contacte aucune cible de scan externe. Les accès réseau pendant la construction servent uniquement à installer les paquets Kali et Python.
+
+Une cible séparée valide Metasploit contre un service HTTP local :
+
+```bash
+docker build --target kali-metasploit -f docker/kali-integration.Dockerfile -t spiderintel-kali-metasploit .
+docker run --rm --cap-add=NET_RAW spiderintel-kali-metasploit
+```
+
+La validation Metasploit est disponible comme workflow GitHub manuel en raison de la taille du paquet et de son temps d’installation.
+
 ## Limites connues
 
 - Le support principal vise Kali Linux.
@@ -197,7 +215,7 @@ La CI GitHub exécute les contrôles sur Python 3.10, 3.11 et 3.12.
 - Le moteur est encore monolithique et gagnerait à être séparé en adaptateurs par outil.
 - Certaines options avancées présentes dans `config.yaml`, notamment les API externes, notifications et wordlists, ne sont pas encore implémentées.
 - Les rapports HTML chargent Bootstrap et Chart.js depuis des CDN externes.
-- Les tests utilisent des mocks et ne remplacent pas une campagne d’intégration contrôlée sous Kali Linux.
+- Les smoke tests Kali couvrent une cible locale contrôlée; ils ne remplacent pas une recette opérationnelle sur l’infrastructure et les politiques réseau de l’organisation.
 
 ## Contribution
 
