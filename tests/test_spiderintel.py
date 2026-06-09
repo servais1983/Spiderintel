@@ -29,11 +29,8 @@ try:
         OSINTResult,
         VulnerabilityResult
     )
-    print("✅ Import de SpiderIntel réussi")
 except ImportError as e:
-    print(f"❌ Erreur d'import: {e}")
-    print("Assurez-vous que spiderintel.py est dans le répertoire parent")
-    sys.exit(1)
+    raise RuntimeError("Impossible d'importer SpiderIntel") from e
 
 class TestSecurityValidator(unittest.TestCase):
     """Tests pour SecurityValidator"""
@@ -65,6 +62,16 @@ class TestSecurityValidator(unittest.TestCase):
         self.assertFalse(self.validator.validate_ip("256.1.1.1"))
         self.assertFalse(self.validator.validate_ip("192.168.1"))
         self.assertFalse(self.validator.validate_ip("not.an.ip.address"))
+
+    def test_normalize_target(self):
+        self.assertEqual(self.validator.normalize_target(" Example.COM. "), "example.com")
+        self.assertEqual(self.validator.normalize_target("192.0.2.10"), "192.0.2.10")
+
+        with self.assertRaises(ValueError):
+            self.validator.normalize_target("https://example.com/path")
+
+        with self.assertRaises(ValueError):
+            self.validator.normalize_target("example.com:443")
     
     def test_validate_email(self):
         """Test de validation des emails"""
@@ -302,6 +309,11 @@ class TestSpiderIntelMain(unittest.TestCase):
         with self.assertRaises(ValueError):
             SpiderIntelMain("invalid-domain")
 
+    def test_authorization_is_required(self):
+        spider = SpiderIntelMain("example.com")
+        with self.assertRaises(PermissionError):
+            spider.run_complete_analysis()
+
 class TestIntegration(unittest.TestCase):
     """Tests d'intégration"""
     
@@ -325,7 +337,7 @@ class TestIntegration(unittest.TestCase):
         
         # Test avec un domaine fictif
         with tempfile.TemporaryDirectory() as temp_dir:
-            spider = SpiderIntelMain("test.example.com", temp_dir)
+            spider = SpiderIntelMain("test.example.com", temp_dir, authorized=True)
             
             # Note: Ce test ne fonctionnera que si tous les outils sont mockés
             # Dans un environnement de test réel, vous voudriez mocker plus de composants
@@ -522,4 +534,4 @@ def main():
 
 if __name__ == '__main__':
     exit_code = main()
-    sys.exit(exit_code) 
+    sys.exit(exit_code)

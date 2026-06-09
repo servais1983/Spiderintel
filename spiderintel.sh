@@ -37,20 +37,20 @@ check_kali_tools() {
     echo -e "${BLUE}Vérification des outils Kali...${NC}"
     
     local tools=(
-        "nmap"
-        "whatweb"
-        "theharvester"
-        "dnsrecon"
-        "dirb"
-        "nikto"
-        "sqlmap"
-        "metasploit-framework"
+        "nmap:nmap"
+        "whatweb:whatweb"
+        "theHarvester:theharvester"
+        "dig:dnsutils"
+        "msfconsole:metasploit-framework"
     )
     
     local missing_tools=()
-    for tool in "${tools[@]}"; do
-        if ! command -v "$tool" &> /dev/null; then
-            missing_tools+=("$tool")
+    local entry command package
+    for entry in "${tools[@]}"; do
+        command="${entry%%:*}"
+        package="${entry##*:}"
+        if ! command -v "$command" &> /dev/null; then
+            missing_tools+=("$package")
         fi
     done
     
@@ -73,14 +73,14 @@ install() {
 # Test
 test() {
     echo -e "${BLUE}Test de SpiderIntel...${NC}"
-    python3 spiderintel.py --test
+    .venv/bin/python -m pytest
 }
 
 # Mise à jour
 update() {
     echo -e "${BLUE}Mise à jour de SpiderIntel...${NC}"
     git pull
-    pip install --upgrade -r requirements.txt
+    .venv/bin/python -m pip install --upgrade -e .
     chmod +x install.sh
     ./install.sh
 }
@@ -112,7 +112,7 @@ main() {
     check_kali_linux
     
     # Traitement des commandes
-    case "$1" in
+    case "${1:-}" in
         install)
             install
             ;;
@@ -133,18 +133,24 @@ main() {
             ;;
         *)
             # Si aucun argument n'est fourni, exécuter l'analyse
-            if [ -z "$1" ]; then
+            if [ -z "${1:-}" ]; then
                 echo -e "${RED}ERREUR: Domaine requis${NC}"
-                echo -e "Usage: $0 <domaine>"
+                echo -e "Usage: $0 <domaine> --authorized"
                 exit 1
             fi
             
             # Vérification des outils
             check_kali_tools
+
+            if [ ! -x ".venv/bin/python" ]; then
+                echo -e "${RED}ERREUR: environnement Python absent${NC}"
+                echo -e "${YELLOW}Exécutez d'abord: ./install.sh${NC}"
+                exit 1
+            fi
             
             # Exécution de l'analyse
             echo -e "${BLUE}Lancement de l'analyse sur $1...${NC}"
-            python3 spiderintel.py "$@"
+            .venv/bin/python spiderintel.py "$@"
             ;;
     esac
 }
@@ -153,4 +159,4 @@ main() {
 trap 'echo -e "${RED}Opération interrompue${NC}"; exit 1' INT TERM
 
 # Lancement
-main "$@" 
+main "$@"

@@ -91,7 +91,7 @@ security:
     proxy_list: []
     rotate_proxies: false
   ssl:
-    verify_certificates: false
+    verify_certificates: true
     custom_ca_bundle: ""
 
 # Configuration OSINT
@@ -301,4 +301,4 @@ advanced:
   experimental:
     ai_powered_analysis: false
     machine_learning_detection: false
-    behavior_analysis: false 
+    behavior_analysis: false
