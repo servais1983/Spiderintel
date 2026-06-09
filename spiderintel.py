@@ -4,7 +4,7 @@
 """
 SpiderIntel - Outil d'OSINT et d'analyse de vulnérabilités automatisé
 Auteur: Professional Security Tools
-Version: 2.0.0
+Version: 2.1.0
 Licence: MIT
 """
 
@@ -14,6 +14,7 @@ import argparse
 import subprocess
 import requests
 import json
+import yaml
 import sqlite3
 import whois
 import configparser
@@ -56,13 +57,13 @@ SPIDERINTEL_LOGO = """
 ╚══════╝╚═╝     ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝    ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚══════╝
 """
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 def print_banner():
     """Affiche la bannière de SpiderIntel"""
     print("\033[1;36m" + SPIDERINTEL_LOGO + "\033[0m")
     print("\033[1;33m" + "=" * 80 + "\033[0m")
-    print("\033[1;32m" + "SpiderIntel v2.0.0 - Outil d'analyse de sécurité professionnel" + "\033[0m")
+    print("\033[1;32m" + f"SpiderIntel v{__version__} - Outil d'analyse de sécurité professionnel" + "\033[0m")
     print("\033[1;32m" + "OSINT + Scan de vulnérabilités + Exploitation" + "\033[0m")
     print("\033[1;33m" + "=" * 80 + "\033[0m\n")
 
@@ -71,18 +72,127 @@ def setup_logging():
     """Configure le système de logging"""
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
-    
+
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, ValueError):
+                pass
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(log_dir / 'spiderintel.log'),
+            logging.FileHandler(log_dir / 'spiderintel.log', encoding='utf-8'),
             logging.StreamHandler()
         ]
     )
     return logging.getLogger(__name__)
 
 logger = setup_logging()
+
+DEFAULT_RUNTIME_CONFIG = {
+    "security": {
+        "timeout": {"default": 30},
+        "retry": {"max_attempts": 3, "delay": 5},
+        "ssl": {"verify_certificates": True},
+    },
+    "osint": {
+        "passive": {
+            "crtsh_enabled": True,
+            "dns_enumeration": True,
+            "social_media_search": True,
+        },
+        "active": {
+            "whatweb_scan": True,
+            "harvester_scan": True,
+        },
+        "limits": {
+            "max_subdomains_scan": 50,
+            "max_ips_scan": 20,
+            "max_threads": 20,
+        },
+    },
+    "vulnerability_scanning": {
+        "nmap": {"enabled": True, "max_scan_time": 300},
+        "web": {
+            "security_headers": True,
+            "sensitive_files": True,
+            "ssl_configuration": True,
+        },
+    },
+    "exploitation": {
+        "enabled": True,
+        "auto_generate": True,
+        "tools": {"metasploit": True},
+    },
+    "reporting": {
+        "formats": ["markdown", "json"],
+        "executive_summary": True,
+    },
+}
+
+
+def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    """Fusionne récursivement une configuration utilisateur avec les valeurs par défaut."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+class RuntimeConfig:
+    """Configuration d'exécution validée et accessible par chemin."""
+
+    def __init__(self, data: Optional[Dict[str, Any]] = None):
+        self.data = _deep_merge(DEFAULT_RUNTIME_CONFIG, data or {})
+
+    @classmethod
+    def load(cls, path: Optional[str]) -> "RuntimeConfig":
+        if not path:
+            return cls()
+
+        config_path = Path(path).expanduser()
+        if not config_path.exists():
+            raise ValueError(f"Fichier de configuration introuvable: {config_path}")
+
+        try:
+            loaded = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Configuration YAML invalide: {exc}") from exc
+
+        if not isinstance(loaded, dict):
+            raise ValueError("La configuration YAML doit contenir un objet à la racine")
+        return cls(loaded)
+
+    def get(self, path: str, default: Any = None) -> Any:
+        current: Any = self.data
+        for key in path.split("."):
+            if not isinstance(current, dict) or key not in current:
+                return default
+            current = current[key]
+        return current
+
+
+def run_scan_steps(steps: List[tuple]) -> Dict[str, Dict[str, Any]]:
+    """Exécute des étapes nommées et conserve un statut exploitable dans les rapports."""
+    statuses = {}
+    for name, enabled, function in steps:
+        if not enabled:
+            statuses[name] = {"status": "skipped", "error": ""}
+            continue
+        try:
+            function()
+            statuses[name] = {"status": "completed", "error": ""}
+        except Exception as exc:
+            logger.exception("Échec de l'étape %s", name)
+            statuses[name] = {"status": "failed", "error": str(exc)}
+    return statuses
+
 
 @dataclass
 class VulnerabilityResult:
@@ -171,7 +281,7 @@ class SecureHTTPSession:
     def __init__(self, timeout=10, max_retries=2, verify_tls=True):
         self.session = requests.Session()
         self.session.verify = verify_tls
-        self.session.headers.update({"User-Agent": "SpiderIntel/2.0.0"})
+        self.session.headers.update({"User-Agent": f"SpiderIntel/{__version__}"})
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_strategy = Retry(
@@ -181,7 +291,7 @@ class SecureHTTPSession:
         )
         self.session.mount('http://', HTTPAdapter(max_retries=self.retry_strategy))
         self.session.mount('https://', HTTPAdapter(max_retries=self.retry_strategy))
-        
+
     def get(self, url: str, **kwargs) -> Optional[requests.Response]:
         """Requête GET avec gestion des erreurs"""
         try:
@@ -210,11 +320,23 @@ class SecureHTTPSession:
 class OSINTScanner:
     """Scanner OSINT avec corrections"""
     
-    def __init__(self, domain: str):
+    def __init__(
+        self,
+        domain: str,
+        config: Optional[RuntimeConfig] = None,
+        scan_depth: str = "quick"
+    ):
         self.domain = SecurityValidator.normalize_target(self.clean_domain(domain))
         self.root_domain = self.get_root_domain(self.domain)
-        self.http_session = SecureHTTPSession()
+        self.config = config or RuntimeConfig()
+        self.scan_depth = scan_depth
+        self.http_session = SecureHTTPSession(
+            timeout=int(self.config.get("security.timeout.default", 30)),
+            max_retries=int(self.config.get("security.retry.max_attempts", 3)),
+            verify_tls=bool(self.config.get("security.ssl.verify_certificates", True)),
+        )
         self.validator = SecurityValidator()
+        self.scan_status = {}
         self.results = OSINTResult(
             subdomains=set(),
             emails=set(),
@@ -307,7 +429,8 @@ class OSINTScanner:
                 pass
 
         # Utilisation de threads pour paralléliser
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        max_workers = int(self.config.get("osint.limits.max_threads", 20))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
             list(tqdm(
                 executor.map(check_subdomain, common_subdomains),
                 total=len(common_subdomains),
@@ -319,6 +442,8 @@ class OSINTScanner:
     def scan_harvester(self) -> None:
         """Scan avec TheHarvester"""
         logger.info("🔍 Scan avec TheHarvester...")
+        if shutil.which("theHarvester") is None:
+            raise RuntimeError("theHarvester est absent du PATH")
         try:
             # Sources fiables pour TheHarvester
             sources = ["google", "bing", "yahoo", "duckduckgo", "crtsh"]
@@ -378,13 +503,25 @@ class OSINTScanner:
     def scan_whatweb(self) -> None:
         """Identification des technologies avec WhatWeb"""
         logger.info("🔍 Identification des technologies (WhatWeb)...")
+        if shutil.which("whatweb") is None:
+            raise RuntimeError("whatweb est absent du PATH")
         
         domains_to_scan = list(self.results.subdomains) + [self.domain]
-        max_retries = 3
-        retry_delay = 5
-        timeout = 30
-        
-        for domain in domains_to_scan[:10]:  # Limiter pour éviter le spam
+        max_retries = int(self.config.get(
+            "scans.web.tools.whatweb.max_retries",
+            self.config.get("security.retry.max_attempts", 3)
+        ))
+        retry_delay = int(self.config.get(
+            "scans.web.tools.whatweb.retry_delay",
+            self.config.get("security.retry.delay", 5)
+        ))
+        timeout = int(self.config.get(
+            "scans.web.tools.whatweb.timeout",
+            self.config.get("security.timeout.default", 30)
+        ))
+        max_domains = int(self.config.get("osint.limits.max_subdomains_scan", 50))
+
+        for domain in domains_to_scan[:max_domains]:
             for attempt in range(max_retries):
                 try:
                     cmd = [
@@ -392,7 +529,7 @@ class OSINTScanner:
                         "--no-errors",
                         "-a", "3",
                         "--max-redirects=3",
-                        "--user-agent=SpiderIntel/2.0.0",
+                        f"--user-agent=SpiderIntel/{__version__}",
                         domain
                     ]
                     
@@ -469,22 +606,36 @@ class OSINTScanner:
         """Lance tous les scans OSINT avec corrections"""
         logger.info("🚀 Démarrage du scan OSINT complet...")
         
-        # Scans séquentiels pour éviter les erreurs de concurrence
-        scan_functions = [
-            self.scan_crtsh,
-            self.scan_dns_enumeration,
-            self.scan_harvester,
-            self.scan_whatweb,
-            self.scan_social_media
+        normal_or_deep = self.scan_depth in {"normal", "deep"}
+        steps = [
+            (
+                "crtsh",
+                bool(self.config.get("osint.passive.crtsh_enabled", True)),
+                self.scan_crtsh,
+            ),
+            (
+                "dns_enumeration",
+                bool(self.config.get("osint.passive.dns_enumeration", True)),
+                self.scan_dns_enumeration,
+            ),
+            (
+                "theharvester",
+                normal_or_deep and bool(self.config.get("osint.active.harvester_scan", True)),
+                self.scan_harvester,
+            ),
+            (
+                "whatweb",
+                bool(self.config.get("osint.active.whatweb_scan", True)),
+                self.scan_whatweb,
+            ),
+            (
+                "social_media",
+                normal_or_deep
+                and bool(self.config.get("osint.passive.social_media_search", True)),
+                self.scan_social_media,
+            ),
         ]
-        
-        for scan_func in scan_functions:
-            try:
-                logger.info(f"🔄 Exécution de {scan_func.__name__}...")
-                scan_func()
-            except Exception as e:
-                logger.error(f"❌ Erreur dans {scan_func.__name__}: {e}")
-                continue
+        self.scan_status = run_scan_steps(steps)
         
         # Résolution IP pour tous les sous-domaines - CORRECTION
         logger.info("🔍 Résolution IP des sous-domaines...")
@@ -508,16 +659,38 @@ class OSINTScanner:
 class VulnerabilityScanner:
     """Scanner de vulnérabilités"""
     
-    def __init__(self, osint_results: OSINTResult):
+    def __init__(
+        self,
+        osint_results: OSINTResult,
+        config: Optional[RuntimeConfig] = None,
+        scan_depth: str = "quick",
+        target: Optional[str] = None
+    ):
         self.osint_results = osint_results
+        self.config = config or RuntimeConfig()
+        self.scan_depth = scan_depth
+        self.target = SecurityValidator.normalize_target(target) if target else None
         self.vulnerabilities = []
-        self.http_session = SecureHTTPSession()
+        self.http_session = SecureHTTPSession(
+            timeout=int(self.config.get("security.timeout.default", 30)),
+            max_retries=int(self.config.get("security.retry.max_attempts", 3)),
+            verify_tls=bool(self.config.get("security.ssl.verify_certificates", True)),
+        )
+        self.scan_status = {}
     
     def scan_nmap_vulnerabilities(self) -> None:
         """Scan Nmap avec scripts de vulnérabilités"""
         logger.info("🔍 Scan de vulnérabilités Nmap...")
+        if shutil.which("nmap") is None:
+            raise RuntimeError("nmap est absent du PATH")
+
+        nmap_timeout = int(self.config.get(
+            "vulnerability_scanning.nmap.max_scan_time",
+            300
+        ))
         
-        for ip in list(self.osint_results.ips)[:5]:  # Limiter à 5 IPs
+        max_ips = int(self.config.get("osint.limits.max_ips_scan", 20))
+        for ip in list(self.osint_results.ips)[:max_ips]:
             if not SecurityValidator.validate_ip(ip):
                 logger.warning("Adresse IP ignorée car invalide: %s", ip)
                 continue
@@ -538,7 +711,7 @@ class VulnerabilityScanner:
                     initial_cmd,
                     capture_output=True,
                     text=True,
-                    timeout=45  # Réduire le timeout initial
+                    timeout=min(45, nmap_timeout)
                 )
                 
                 if initial_result.returncode != 0:
@@ -547,12 +720,14 @@ class VulnerabilityScanner:
                 # Extraire les ports ouverts
                 open_ports = []
                 for line in initial_result.stdout.split('\n'):
-                    if 'open' in line:
-                        port = line.split('/')[0]
-                        open_ports.append(port)
+                    match = re.match(r"^\s*(\d+)/(tcp|udp)\s+open\b", line)
+                    if match:
+                        open_ports.append(match.group(1))
                 
                 if not open_ports:
                     continue
+
+                self.osint_results.ports[ip] = sorted({int(port) for port in open_ports})
                 
                 # Scan détaillé uniquement sur les ports ouverts
                 ports_str = ','.join(open_ports)
@@ -573,7 +748,7 @@ class VulnerabilityScanner:
                     detailed_cmd,
                     capture_output=True,
                     text=True,
-                    timeout=90  # Réduire le timeout détaillé
+                    timeout=min(90, nmap_timeout)
                 )
                 
                 if detailed_result.returncode == 0:
@@ -633,12 +808,34 @@ class VulnerabilityScanner:
         """Scan des vulnérabilités web communes"""
         logger.info("🔍 Scan des vulnérabilités web...")
         
-        domains_to_scan = list(self.osint_results.subdomains)[:10]
+        domains = set(self.osint_results.subdomains)
+        if self.target and SecurityValidator.validate_domain(self.target):
+            domains.add(self.target)
+        domains.update(
+            target for target in self.osint_results.certificates
+            if SecurityValidator.validate_domain(target)
+        )
+        domains.update(
+            domain for domain in self.osint_results.ports
+            if SecurityValidator.validate_domain(domain)
+        )
+        domains_to_scan = list(domains)[:int(
+            self.config.get("osint.limits.max_subdomains_scan", 50)
+        )]
         
         for domain in domains_to_scan:
-            self.scan_security_headers(domain)
-            self.scan_common_files(domain)
-            self.scan_ssl_configuration(domain)
+            if self.config.get("vulnerability_scanning.web.security_headers", True):
+                self.scan_security_headers(domain)
+            if (
+                self.scan_depth == "deep"
+                and self.config.get("vulnerability_scanning.web.sensitive_files", True)
+            ):
+                self.scan_common_files(domain)
+            if (
+                self.scan_depth in {"normal", "deep"}
+                and self.config.get("vulnerability_scanning.web.ssl_configuration", True)
+            ):
+                self.scan_ssl_configuration(domain)
     
     def scan_security_headers(self, domain: str) -> None:
         """Vérifie les en-têtes de sécurité"""
@@ -685,12 +882,21 @@ class VulnerabilityScanner:
             '/.htaccess', '/web.config', '/crossdomain.xml'
         ]
         
+        baseline = self.http_session.get(
+            f"https://{domain}/.spiderintel-not-found-{hashlib.sha256(domain.encode()).hexdigest()[:16]}"
+        )
+        baseline_signature = self._response_signature(baseline)
+
         for file_path in sensitive_files:
             try:
                 url = f"https://{domain}{file_path}"
                 response = self.http_session.get(url)
                 
-                if response and response.status_code == 200:
+                if (
+                    response
+                    and response.status_code == 200
+                    and self._response_signature(response) != baseline_signature
+                ):
                     vuln = VulnerabilityResult(
                         name=f"Fichier sensible accessible: {file_path}",
                         severity="High",
@@ -702,6 +908,17 @@ class VulnerabilityScanner:
             
             except Exception as e:
                 logger.debug(f"   Fichier sensible non accessible {file_path}: {e}")
+
+    @staticmethod
+    def _response_signature(response: Optional[requests.Response]) -> Optional[tuple]:
+        if response is None:
+            return None
+        body = response.content or b""
+        return (
+            response.status_code,
+            len(body),
+            hashlib.sha256(body).hexdigest(),
+        )
 
     def scan_ssl_configuration(self, domain: str) -> None:
         """Vérifie la configuration SSL"""
@@ -735,16 +952,19 @@ class VulnerabilityScanner:
         """Lance tous les scans de vulnérabilités"""
         logger.info("🚀 Démarrage du scan de vulnérabilités...")
         
-        scan_functions = [
-            self.scan_nmap_vulnerabilities,
-            self.scan_web_vulnerabilities
+        steps = [
+            (
+                "nmap",
+                bool(self.config.get("vulnerability_scanning.nmap.enabled", True)),
+                self.scan_nmap_vulnerabilities,
+            ),
+            (
+                "web",
+                True,
+                self.scan_web_vulnerabilities,
+            ),
         ]
-        
-        for scan_func in scan_functions:
-            try:
-                scan_func()
-            except Exception as e:
-                logger.error(f"❌ Erreur dans {scan_func.__name__}: {e}")
+        self.scan_status = run_scan_steps(steps)
         
         logger.info(f"✅ Scan de vulnérabilités terminé: {len(self.vulnerabilities)} vulnérabilités trouvées")
         
@@ -900,6 +1120,7 @@ class MetasploitScanner:
         self.logger = logging.getLogger(__name__)
         self.scan_depth = scan_depth  # "quick", "normal", "deep"
         self.timeout = 300  # 5 minutes par défaut
+        self.last_error = ""
     
     def scan_with_metasploit(self) -> List[Dict[str, Any]]:
         """Effectue un scan avec Metasploit"""
@@ -908,6 +1129,7 @@ class MetasploitScanner:
         try:
             # Vérifier si msfconsole est disponible
             if not self._check_metasploit():
+                self.last_error = "msfconsole absent"
                 logger.error("❌ Metasploit n'est pas installé ou n'est pas dans le PATH")
                 return []
             
@@ -925,10 +1147,12 @@ class MetasploitScanner:
                         check=False
                     )
                 except subprocess.TimeoutExpired:
+                    self.last_error = "timeout Metasploit"
                     logger.warning("⚠️ Le scan Metasploit a dépassé le délai maximum")
                     return self.results
             
             if result.returncode != 0:
+                self.last_error = result.stderr.strip() or "échec Metasploit"
                 logger.error(f"❌ Erreur lors du scan Metasploit: {result.stderr}")
                 return []
             
@@ -939,6 +1163,7 @@ class MetasploitScanner:
             return self.results
             
         except Exception as e:
+            self.last_error = str(e)
             logger.error(f"❌ Erreur lors du scan Metasploit: {e}")
             return []
     
@@ -1071,11 +1296,19 @@ exit
 class RealDataReportGenerator:
     """Générateur de rapports basé sur les données réelles"""
     
-    def __init__(self, domain: str, osint_results, vulnerabilities: List, exploit_suggestions: List[Dict[str, Any]]):
+    def __init__(
+        self,
+        domain: str,
+        osint_results,
+        vulnerabilities: List,
+        exploit_suggestions: List[Dict[str, Any]],
+        scan_metadata: Optional[Dict[str, Any]] = None
+    ):
         self.domain = domain
         self.osint_results = osint_results
         self.vulnerabilities = vulnerabilities
         self.exploit_suggestions = exploit_suggestions
+        self.scan_metadata = scan_metadata or {}
         self.real_data = self._prepare_real_data()
     
     def _prepare_real_data(self) -> Dict[str, Any]:
@@ -1085,14 +1318,19 @@ class RealDataReportGenerator:
                 'subdomains': list(getattr(self.osint_results, 'subdomains', set())),
                 'ips': list(getattr(self.osint_results, 'ips', set())),
                 'emails': list(getattr(self.osint_results, 'emails', set())),
-                'technologies': list(getattr(self.osint_results, 'technologies', set()))
+                'technologies': list(getattr(self.osint_results, 'technologies', set())),
+                'ports': getattr(self.osint_results, 'ports', {}),
+                'certificates': getattr(self.osint_results, 'certificates', {}),
             },
             'target_analysis': {
                 'total_targets': len(getattr(self.osint_results, 'subdomains', set())) + 1,
                 'scanned_ips': list(getattr(self.osint_results, 'ips', set())),
                 'scanned_domains': list(getattr(self.osint_results, 'subdomains', set())) + [self.domain]
             },
-            'security_issues': self._categorize_security_issues()
+            'security_issues': self._categorize_security_issues(),
+            'vulnerabilities': [asdict(vuln) for vuln in self.vulnerabilities],
+            'exploit_suggestions': self.exploit_suggestions,
+            'scan_metadata': self.scan_metadata,
         }
     
     def _categorize_security_issues(self) -> Dict[str, List[Dict[str, Any]]]:
@@ -1135,7 +1373,7 @@ class RealDataReportGenerator:
         report.append("# 🕷️ SpiderIntel - Rapport d'Analyse Complet")
         report.append(f"**Domaine cible:** {self.domain}")
         report.append(f"**Date d'analyse:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        report.append(f"**Version:** SpiderIntel v2.0.0")
+        report.append(f"**Version:** SpiderIntel v{__version__}")
         report.append("\n" + "="*80 + "\n")
         
         # Résumé exécutif avec données réelles
@@ -1148,6 +1386,18 @@ class RealDataReportGenerator:
         report.append(f"- **Assets découverts:** {len(assets['subdomains']) + len(assets['ips']) + len(assets['emails'])}")
         report.append(f"- **Problèmes de sécurité:** {len(self.vulnerabilities)}")
         report.append(f"- **Catégories de risques:** {len(issues)}")
+
+        if self.scan_metadata:
+            report.append(f"- **État global:** {self.scan_metadata.get('overall_status', 'unknown')}")
+            report.append(f"- **Profondeur:** {self.scan_metadata.get('scan_depth', 'unknown')}")
+
+            report.append("\n## Couverture et Statut des Scans")
+            for group_name, group_statuses in self.scan_metadata.get("phases", {}).items():
+                report.append(f"\n### {group_name}")
+                for phase_name, phase in group_statuses.items():
+                    status = phase.get("status", "unknown")
+                    detail = f" - {phase.get('error')}" if phase.get("error") else ""
+                    report.append(f"- **{phase_name}:** {status}{detail}")
         
         # Détails des découvertes
         report.append("\n## 🔍 Découvertes Détaillées")
@@ -1190,8 +1440,9 @@ class RealDataReportGenerator:
             for domain, cert in self.osint_results.certificates.items():
                 report.append(f"\n#### {domain}")
                 report.append(f"- **Émetteur:** {cert.get('issuer', 'Inconnu')}")
-                report.append(f"- **Valide jusqu'au:** {cert.get('valid_until', 'Inconnu')}")
-                report.append(f"- **Algorithme:** {cert.get('algorithm', 'Inconnu')}")
+                report.append(f"- **Valide jusqu'au:** {cert.get('not_after', 'Inconnu')}")
+                if cert.get('serial_number'):
+                    report.append(f"- **Numéro de série:** {cert['serial_number']}")
         
         # Vulnérabilités
         if self.vulnerabilities:
@@ -1261,7 +1512,7 @@ class ReportGenerator:
         report.append("# 🕷️ SpiderIntel - Rapport d'Analyse Complet")
         report.append(f"**Domaine cible:** {self.domain}")
         report.append(f"**Date d'analyse:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        report.append(f"**Version:** SpiderIntel v2.0.0")
+        report.append(f"**Version:** SpiderIntel v{__version__}")
         report.append("\n" + "="*80 + "\n")
         
         # Résumé exécutif avec données réelles uniquement
@@ -1753,13 +2004,15 @@ class SpiderIntelMain:
         domain: str,
         output_dir: str = "reports",
         scan_depth: str = "quick",
-        authorized: bool = False
+        authorized: bool = False,
+        config: Optional[RuntimeConfig] = None
     ):
         self.domain = SecurityValidator.normalize_target(domain)
         self.output_dir = Path(output_dir).expanduser().resolve()
         self.logger = logging.getLogger(__name__)
         self.scan_depth = scan_depth
         self.authorized = authorized
+        self.config = config or RuntimeConfig()
     
     def run_complete_analysis(self) -> Dict[str, Any]:
         """Exécute une analyse complète avec rapports basés sur les données réelles"""
@@ -1778,18 +2031,38 @@ class SpiderIntelMain:
             
             # Phase 1: Scan OSINT
             logger.info("🔍 Phase 1: Scan OSINT")
-            osint_scanner = OSINTScanner(self.domain)
+            osint_scanner = OSINTScanner(self.domain, self.config, self.scan_depth)
             osint_results = osint_scanner.scan_all()
             
             # Phase 2: Scan des vulnérabilités
             logger.info("🔍 Phase 2: Scan des vulnérabilités")
-            vuln_scanner = VulnerabilityScanner(osint_results)
+            vuln_scanner = VulnerabilityScanner(
+                osint_results,
+                self.config,
+                self.scan_depth,
+                self.domain,
+            )
             vulnerabilities = vuln_scanner.scan_all()
             
             # Phase 3: Scan Metasploit
             logger.info("🔍 Phase 3: Scan Metasploit")
-            metasploit_scanner = MetasploitScanner(self.domain, self.scan_depth)
-            metasploit_results = metasploit_scanner.scan_with_metasploit()
+            metasploit_enabled = (
+                bool(self.config.get("exploitation.enabled", True))
+                and bool(self.config.get("exploitation.tools.metasploit", True))
+            )
+            if metasploit_enabled:
+                metasploit_scanner = MetasploitScanner(self.domain, self.scan_depth)
+                metasploit_scanner.timeout = int(
+                    self.config.get("security.max_scan_time", 3600)
+                )
+                metasploit_results = metasploit_scanner.scan_with_metasploit()
+                metasploit_status = {
+                    "status": "failed" if metasploit_scanner.last_error else "completed",
+                    "error": metasploit_scanner.last_error,
+                }
+            else:
+                metasploit_results = []
+                metasploit_status = {"status": "skipped", "error": "désactivé par configuration"}
             
             # Fusionner les résultats des vulnérabilités
             vulnerabilities.extend([
@@ -1805,70 +2078,117 @@ class SpiderIntelMain:
             
             # Phase 4: Suggestions d'exploitation
             logger.info("🎯 Phase 4: Génération des suggestions d'exploitation")
-            exploit_suggester = ExploitSuggester(vulnerabilities)
-            exploit_suggestions = exploit_suggester.generate_exploit_suggestions()
+            if self.config.get("exploitation.auto_generate", True):
+                exploit_suggester = ExploitSuggester(vulnerabilities)
+                exploit_suggestions = exploit_suggester.generate_exploit_suggestions()
+            else:
+                exploit_suggestions = []
+
+            phases = {
+                "osint": osint_scanner.scan_status,
+                "vulnerability": vuln_scanner.scan_status,
+                "exploitation": {"metasploit": metasploit_status},
+            }
+            statuses = [
+                phase["status"]
+                for group in phases.values()
+                for phase in group.values()
+            ]
+            completed_count = statuses.count("completed")
+            failed_count = statuses.count("failed")
+            if completed_count == 0:
+                overall_status = "failed"
+            elif failed_count:
+                overall_status = "partial"
+            else:
+                overall_status = "completed"
+
+            scan_metadata = {
+                "overall_status": overall_status,
+                "scan_depth": self.scan_depth,
+                "phases": phases,
+            }
             
             # Phase 5: Génération des rapports
             logger.info("📝 Phase 5: Génération des rapports")
             report_generator = RealDataReportGenerator(
-                self.domain, osint_results, vulnerabilities, exploit_suggestions
+                self.domain,
+                osint_results,
+                vulnerabilities,
+                exploit_suggestions,
+                scan_metadata,
             )
             
             timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
             generated_reports = {}
+            report_formats = {
+                str(value).lower()
+                for value in self.config.get("reporting.formats", ["markdown", "json"])
+            }
             
-            # Génération rapport Markdown
-            try:
-                logger.info("📝 Génération du rapport Markdown...")
-                md_report = report_generator.generate_real_data_markdown_report()
-                md_path = domain_output_dir / f"spiderintel_analysis_{timestamp}.md"
-                
-                with open(md_path, 'w', encoding='utf-8') as f:
-                    f.write(md_report)
-                generated_reports['markdown'] = md_path
-                logger.info(f"✅ Rapport Markdown créé: {md_path}")
-                
-            except Exception as e:
-                logger.error(f"❌ Erreur génération rapport Markdown: {e}")
-            
-            # Génération rapport JSON
-            try:
-                logger.info("📊 Génération du rapport JSON...")
-                json_report = report_generator.generate_real_data_json_report()
-                json_path = domain_output_dir / f"spiderintel_analysis_{timestamp}.json"
-                
-                with open(json_path, 'w', encoding='utf-8') as f:
-                    f.write(json_report)
-                generated_reports['json'] = json_path
-                logger.info(f"✅ Rapport JSON créé: {json_path}")
-                
-            except Exception as e:
-                logger.error(f"❌ Erreur génération rapport JSON: {e}")
-            
-            # Génération du résumé exécutif
-            try:
-                logger.info("📋 Génération du résumé exécutif...")
-                summary = self.generate_executive_summary(report_generator)
-                summary_path = domain_output_dir / f"spiderintel_summary_{timestamp}.md"
-                
-                with open(summary_path, 'w', encoding='utf-8') as f:
-                    f.write(summary)
-                generated_reports['summary'] = summary_path
-                logger.info(f"✅ Résumé exécutif créé: {summary_path}")
-                
-            except Exception as e:
-                logger.error(f"❌ Erreur génération résumé exécutif: {e}")
+            if "markdown" in report_formats:
+                try:
+                    logger.info("📝 Génération du rapport Markdown...")
+                    md_report = report_generator.generate_real_data_markdown_report()
+                    md_path = domain_output_dir / f"spiderintel_analysis_{timestamp}.md"
+                    md_path.write_text(md_report, encoding="utf-8")
+                    generated_reports["markdown"] = md_path
+                    logger.info("Rapport Markdown créé: %s", md_path)
+                except Exception as e:
+                    logger.error("Erreur génération rapport Markdown: %s", e)
+
+            if self.config.get("reporting.executive_summary", True):
+                try:
+                    logger.info("📋 Génération du résumé exécutif...")
+                    summary = self.generate_executive_summary(report_generator)
+                    summary_path = domain_output_dir / f"spiderintel_summary_{timestamp}.md"
+                    summary_path.write_text(summary, encoding="utf-8")
+                    generated_reports["summary"] = summary_path
+                    logger.info("Résumé exécutif créé: %s", summary_path)
+                except Exception as e:
+                    logger.error("Erreur génération résumé exécutif: %s", e)
+
+            if "html" in report_formats:
+                try:
+                    logger.info("Génération du rapport HTML...")
+                    html_report = self.generate_enhanced_html_report(report_generator)
+                    html_path = domain_output_dir / f"spiderintel_analysis_{timestamp}.html"
+                    html_path.write_text(html_report, encoding="utf-8")
+                    generated_reports["html"] = html_path
+                    logger.info("Rapport HTML créé: %s", html_path)
+                except Exception as e:
+                    logger.error("Erreur génération rapport HTML: %s", e)
             
             # Calcul du temps d'exécution
             execution_time = time.time() - start_time
+            scan_metadata["execution_time_seconds"] = round(execution_time, 2)
             logger.info(f"⏱️ Temps d'exécution total: {execution_time:.2f} secondes")
+
+            if overall_status == "failed":
+                raise RuntimeError("Aucune phase de scan n'a pu être exécutée")
+
+            if "json" in report_formats:
+                try:
+                    logger.info("📊 Génération du rapport JSON...")
+                    json_report = report_generator.generate_real_data_json_report()
+                    json_path = domain_output_dir / f"spiderintel_analysis_{timestamp}.json"
+                    json_path.write_text(json_report, encoding="utf-8")
+                    generated_reports["json"] = json_path
+                    logger.info("Rapport JSON créé: %s", json_path)
+                except Exception as e:
+                    logger.error("Erreur génération rapport JSON: %s", e)
+
+            if not generated_reports:
+                raise RuntimeError("Aucun rapport n'a pu être généré")
             
             return {
                 'osint_results': osint_results,
                 'vulnerabilities': vulnerabilities,
                 'exploit_suggestions': exploit_suggestions,
                 'reports': generated_reports,
-                'execution_time': execution_time
+                'execution_time': execution_time,
+                'scan_metadata': scan_metadata,
+                'status': overall_status,
             }
             
         except Exception as e:
@@ -2151,22 +2471,35 @@ RECOMMANDATIONS
 4. Former l'équipe aux bonnes pratiques de sécurité
 
 ---
-Généré par SpiderIntel v2.0.0
+Généré par SpiderIntel v{__version__}
 Basé sur {len(report_generator.vulnerabilities)} découvertes de sécurité
 """
         
         return summary
 
-def check_dependencies():
+def check_dependencies(
+    config: Optional[RuntimeConfig] = None,
+    scan_depth: str = "quick"
+):
     """Vérifie les dépendances système"""
     logger.info("🔧 Vérification des dépendances...")
-    
-    required_tools = {
-        'nmap': 'nmap',
-        'whatweb': 'whatweb', 
-        'theHarvester': 'theharvester',
-        'dig': 'dnsutils'
-    }
+
+    runtime_config = config or RuntimeConfig()
+    required_tools = {}
+    if runtime_config.get("vulnerability_scanning.nmap.enabled", True):
+        required_tools["nmap"] = "nmap"
+    if runtime_config.get("osint.active.whatweb_scan", True):
+        required_tools["whatweb"] = "whatweb"
+    if (
+        scan_depth in {"normal", "deep"}
+        and runtime_config.get("osint.active.harvester_scan", True)
+    ):
+        required_tools["theHarvester"] = "theharvester"
+    if (
+        runtime_config.get("exploitation.enabled", True)
+        and runtime_config.get("exploitation.tools.metasploit", True)
+    ):
+        required_tools["msfconsole"] = "metasploit-framework"
     
     missing_tools = []
     
@@ -2188,7 +2521,7 @@ def check_dependencies():
 def main():
     """Fonction principale"""
     parser = argparse.ArgumentParser(
-        description="SpiderIntel v2.0.0 - Outil d'analyse de sécurité complet",
+        description=f"SpiderIntel v{__version__} - Outil d'analyse de sécurité complet",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Exemples d'utilisation:
@@ -2206,6 +2539,11 @@ ou pour lesquels vous avez une autorisation écrite explicite.
     parser.add_argument('domain', nargs='?', help='Domaine cible à analyser')
     parser.add_argument('--output', '-o', default='reports', 
                        help='Répertoire de sortie des rapports (défaut: reports)')
+    parser.add_argument(
+        '--config',
+        default=None,
+        help='Fichier de configuration YAML (utilise ./config.yaml s’il existe)'
+    )
     parser.add_argument('--check-deps', action='store_true',
                        help='Vérifier les dépendances seulement')
     parser.add_argument('--verbose', '-v', action='store_true',
@@ -2224,6 +2562,14 @@ ou pour lesquels vous avez une autorisation écrite explicite.
     )
     
     args = parser.parse_args()
+
+    try:
+        config_path = args.config
+        if config_path is None and Path("config.yaml").exists():
+            config_path = "config.yaml"
+        runtime_config = RuntimeConfig.load(config_path)
+    except ValueError as e:
+        parser.error(str(e))
     
     # Configuration du logging
     if args.verbose:
@@ -2233,7 +2579,7 @@ ou pour lesquels vous avez une autorisation écrite explicite.
     print_banner()
     
     # Vérification des dépendances
-    if not check_dependencies():
+    if not check_dependencies(runtime_config, args.scan_depth):
         if args.check_deps:
             sys.exit(1)
         logger.warning("⚠️ Certaines dépendances manquent, l'analyse peut être incomplète")
@@ -2256,11 +2602,12 @@ ou pour lesquels vous avez une autorisation écrite explicite.
             args.domain,
             args.output,
             args.scan_depth,
-            authorized=args.authorized
+            authorized=args.authorized,
+            config=runtime_config,
         )
         results = spider_intel.run_complete_analysis()
         
-        logger.info("\n🎯 Analyse terminée avec succès!")
+        logger.info("\nAnalyse terminée avec l'état: %s", results["status"])
         logger.info("📋 Consultez les rapports générés pour les détails complets.")
         
     except KeyboardInterrupt:

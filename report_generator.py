@@ -348,7 +348,7 @@ class ReportGenerator:
         report.append("# 🕷️ SpiderIntel - Rapport d'Analyse Complet")
         report.append(f"**Domaine cible:** {self.domain}")
         report.append(f"**Date d'analyse:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        report.append(f"**Version:** SpiderIntel v2.0.0")
+        report.append("**Version:** SpiderIntel v2.1.0")
         report.append("\n" + "="*80 + "\n")
         
         # Résumé exécutif
@@ -460,4 +460,4 @@ class ReportGenerator:
         json_path.write_text(json.dumps(json_data, indent=2), encoding='utf-8')
         saved_files['json'] = json_path
         
-        return saved_files 
+        return saved_files

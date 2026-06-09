@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-SpiderIntel v2.0.0 - Script de test et validation
+SpiderIntel v2.1.0 - Script de test et validation
 Teste les principales fonctionnalités de SpiderIntel
 """
 
@@ -21,13 +21,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     from spiderintel import (
         SecurityValidator, 
+        RuntimeConfig,
         OSINTScanner, 
         VulnerabilityScanner, 
         ExploitSuggester,
         ReportGenerator,
+        RealDataReportGenerator,
         SpiderIntelMain,
         OSINTResult,
-        VulnerabilityResult
+        VulnerabilityResult,
+        check_dependencies,
     )
 except ImportError as e:
     raise RuntimeError("Impossible d'importer SpiderIntel") from e
@@ -83,6 +86,25 @@ class TestSecurityValidator(unittest.TestCase):
         self.assertFalse(self.validator.validate_email("invalid-email"))
         self.assertFalse(self.validator.validate_email("@example.com"))
         self.assertFalse(self.validator.validate_email("test@"))
+
+class TestRuntimeConfig(unittest.TestCase):
+    def test_defaults_and_overrides(self):
+        config = RuntimeConfig({
+            "security": {"timeout": {"default": 12}},
+            "osint": {"limits": {"max_threads": 4}},
+        })
+
+        self.assertEqual(config.get("security.timeout.default"), 12)
+        self.assertEqual(config.get("osint.limits.max_threads"), 4)
+        self.assertTrue(config.get("security.ssl.verify_certificates"))
+
+    def test_load_rejects_invalid_root(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "config.yaml"
+            path.write_text("- invalid\n- root\n", encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                RuntimeConfig.load(str(path))
 
 class TestOSINTScanner(unittest.TestCase):
     """Tests pour OSINTScanner"""
@@ -140,6 +162,27 @@ class TestOSINTScanner(unittest.TestCase):
         self.assertIn('www.example.com', self.scanner.results.subdomains)
         self.assertIn('sub.example.com', self.scanner.results.subdomains)
 
+    def test_quick_profile_skips_extended_osint(self):
+        config = RuntimeConfig({
+            "osint": {
+                "passive": {
+                    "crtsh_enabled": False,
+                    "dns_enumeration": False,
+                    "social_media_search": True,
+                },
+                "active": {
+                    "whatweb_scan": False,
+                    "harvester_scan": True,
+                },
+            }
+        })
+        scanner = OSINTScanner("example.com", config, "quick")
+
+        scanner.scan_all()
+
+        self.assertEqual(scanner.scan_status["theharvester"]["status"], "skipped")
+        self.assertEqual(scanner.scan_status["social_media"]["status"], "skipped")
+
 class TestVulnerabilityScanner(unittest.TestCase):
     """Tests pour VulnerabilityScanner"""
     
@@ -172,6 +215,78 @@ class TestVulnerabilityScanner(unittest.TestCase):
         # Vérifier les détails de la vulnérabilité
         vuln = self.scanner.vulnerabilities[0]
         self.assertIn("CVE-2017-1001000", vuln.cve_id)
+
+    @patch('shutil.which', return_value='nmap')
+    @patch('subprocess.run')
+    def test_nmap_open_ports_are_saved(self, mock_run, mock_which):
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="80/tcp open http\n443/tcp open https\n", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+        ]
+
+        self.scanner.scan_nmap_vulnerabilities()
+
+        saved_ports = [
+            port
+            for ports in self.osint_results.ports.values()
+            for port in ports
+        ]
+        self.assertIn(80, saved_ports)
+        self.assertIn(443, saved_ports)
+
+    def test_sensitive_file_baseline_prevents_false_positive(self):
+        response = MagicMock()
+        response.status_code = 200
+        response.content = b"same fallback page"
+        self.scanner.http_session.get = MagicMock(return_value=response)
+
+        self.scanner.scan_common_files("example.com")
+
+        self.assertFalse(any("Fichier sensible" in vuln.name for vuln in self.scanner.vulnerabilities))
+
+    def test_depth_controls_web_checks(self):
+        config = RuntimeConfig({
+            "vulnerability_scanning": {
+                "nmap": {"enabled": False},
+                "web": {
+                    "security_headers": True,
+                    "sensitive_files": True,
+                    "ssl_configuration": True,
+                },
+            }
+        })
+        quick_scanner = VulnerabilityScanner(
+            self.osint_results,
+            config,
+            "quick",
+            "example.com",
+        )
+        quick_scanner.scan_security_headers = MagicMock()
+        quick_scanner.scan_common_files = MagicMock()
+        quick_scanner.scan_ssl_configuration = MagicMock()
+
+        quick_scanner.scan_all()
+
+        self.assertTrue(quick_scanner.scan_security_headers.called)
+        self.assertFalse(quick_scanner.scan_common_files.called)
+        self.assertFalse(quick_scanner.scan_ssl_configuration.called)
+
+        deep_scanner = VulnerabilityScanner(
+            self.osint_results,
+            config,
+            "deep",
+            "example.com",
+        )
+        deep_scanner.scan_security_headers = MagicMock()
+        deep_scanner.scan_common_files = MagicMock()
+        deep_scanner.scan_ssl_configuration = MagicMock()
+
+        deep_scanner.scan_all()
+
+        self.assertTrue(deep_scanner.scan_common_files.called)
+        self.assertTrue(deep_scanner.scan_ssl_configuration.called)
 
 class TestExploitSuggester(unittest.TestCase):
     """Tests pour ExploitSuggester"""
@@ -293,6 +408,33 @@ class TestReportGenerator(unittest.TestCase):
                 self.assertIn('osint_results', json_data)
                 self.assertIn('vulnerabilities', json_data)
 
+    def test_real_data_report_includes_scan_metadata_and_ports(self):
+        self.osint_results.ports = {"192.168.1.1": [80, 443]}
+        metadata = {
+            "overall_status": "partial",
+            "scan_depth": "normal",
+            "phases": {
+                "osint": {
+                    "whatweb": {"status": "failed", "error": "outil absent"}
+                }
+            },
+        }
+        generator = RealDataReportGenerator(
+            "example.com",
+            self.osint_results,
+            self.vulnerabilities,
+            self.exploit_suggestions,
+            metadata,
+        )
+
+        json_data = json.loads(generator.generate_real_data_json_report())
+        markdown_report = generator.generate_real_data_markdown_report()
+
+        self.assertEqual(json_data["scan_metadata"]["overall_status"], "partial")
+        self.assertEqual(json_data["collected_assets"]["ports"]["192.168.1.1"], [80, 443])
+        self.assertIn("Couverture et Statut des Scans", markdown_report)
+        self.assertIn("outil absent", markdown_report)
+
 class TestSpiderIntelMain(unittest.TestCase):
     """Tests pour la classe principale SpiderIntelMain"""
     
@@ -313,6 +455,18 @@ class TestSpiderIntelMain(unittest.TestCase):
         spider = SpiderIntelMain("example.com")
         with self.assertRaises(PermissionError):
             spider.run_complete_analysis()
+
+    @patch('shutil.which')
+    def test_dependency_check_respects_disabled_tools(self, mock_which):
+        mock_which.return_value = None
+        config = RuntimeConfig({
+            "osint": {"active": {"whatweb_scan": False, "harvester_scan": False}},
+            "vulnerability_scanning": {"nmap": {"enabled": False}},
+            "exploitation": {"enabled": False},
+        })
+
+        self.assertTrue(check_dependencies(config, "deep"))
+        mock_which.assert_not_called()
 
 class TestIntegration(unittest.TestCase):
     """Tests d'intégration"""
@@ -462,7 +616,7 @@ def run_quick_functionality_test():
 
 def main():
     """Fonction principale de test"""
-    print("🕷️  SpiderIntel v2.0.0 - Suite de Tests et Validation")
+    print("🕷️  SpiderIntel v2.1.0 - Suite de Tests et Validation")
     print("=" * 60)
     
     # Vérifications des dépendances

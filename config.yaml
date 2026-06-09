@@ -1,8 +1,8 @@
-# SpiderIntel v2.0.0 - Configuration pour Kali Linux
+# SpiderIntel v2.1.0 - Configuration pour Kali Linux
 
 # Configuration générale
 general:
-  version: "2.0.0"
+  version: "2.1.0"
   platform: "kali"
   debug: false
   stealth_mode: true
@@ -22,7 +22,7 @@ scans:
         timeout: 30
         max_retries: 3
         retry_delay: 5
-        options: "--max-redirects=3 --user-agent='SpiderIntel/2.0.0'"
+        options: "--max-redirects=3 --user-agent='SpiderIntel/2.1.0'"
       nikto:
         enabled: true
         timeout: 600
@@ -71,7 +71,7 @@ security:
   max_scan_time: 3600
   rate_limit: true
   max_requests_per_second: 10
-  user_agent: "SpiderIntel/2.0.0 (Kali Linux)"
+  user_agent: "SpiderIntel/2.1.0 (Kali Linux)"
   timeout:
     default: 30
     max: 300

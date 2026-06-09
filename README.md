@@ -6,7 +6,7 @@ Le projet doit uniquement être utilisé sur des systèmes dont vous êtes propr
 
 ## Statut du projet
 
-Version actuelle : `2.0.0`
+Version actuelle : `2.1.0`
 
 Statut : bêta opérationnelle. Le cœur du projet est testable et installable, mais une validation dans votre environnement Kali, avec vos procédures de sécurité et vos contraintes réseau, reste nécessaire avant un usage professionnel régulier.
 
@@ -99,6 +99,12 @@ Choisir le répertoire de sortie :
 spiderintel example.com --authorized --output ./reports
 ```
 
+Utiliser une configuration spécifique :
+
+```bash
+spiderintel example.com --authorized --config ./config.yaml
+```
+
 Choisir la profondeur :
 
 ```bash
@@ -130,8 +136,8 @@ spiderintel --version
 | Niveau | Usage recommandé | Effet |
 |---|---|---|
 | `quick` | Validation initiale | Ports courants et contrôles auxiliaires limités |
-| `normal` | Audit standard autorisé | Ajoute des contrôles HTTP, TLS et SSH |
-| `deep` | Environnement de test maîtrisé | Ajoute davantage de modules et augmente la charge |
+| `normal` | Audit standard autorisé | Ajoute TheHarvester, réseaux sociaux, TLS et modules Metasploit supplémentaires |
+| `deep` | Environnement de test maîtrisé | Ajoute les fichiers sensibles et davantage de modules Metasploit |
 
 Le niveau `deep` peut être intrusif et générer une charge importante. Il ne doit pas être utilisé sans fenêtre de tir, supervision et procédure d’arrêt.
 
@@ -148,6 +154,8 @@ reports/
 ```
 
 Les journaux applicatifs sont écrits dans `logs/spiderintel.log`.
+
+Chaque rapport contient l’état global de l’analyse et le statut des sous-scans : `completed`, `skipped` ou `failed`. Une analyse partiellement exécutée est signalée avec l’état `partial`.
 
 Les rapports peuvent contenir des domaines, adresses IP, adresses électroniques, versions logicielles et détails de vulnérabilités. Ils doivent être stockés avec des permissions restrictives et selon la politique de conservation de votre organisation.
 
@@ -166,7 +174,9 @@ SpiderIntel ne remplace pas une méthodologie d’audit, une validation humaine 
 
 ## Configuration
 
-Les fichiers `config.yaml`, `config.ini` et `logging.conf` documentent les paramètres historiques du projet. Une partie des limites d’exécution reste actuellement définie dans le code. Toute exploitation à grande échelle doit donc passer par une revue du code, des délais, du nombre de cibles et des modules activés.
+`config.yaml` pilote les délais HTTP, les tentatives, la vérification TLS, les limites de parallélisme et de cibles, l’activation des scans OSINT, Nmap, web et Metasploit ainsi que les formats de rapport. Le fichier du répertoire courant est chargé automatiquement lorsqu’il existe; `--config` permet d’en choisir un autre.
+
+`config.ini` et `logging.conf` sont conservés pour compatibilité historique et ne pilotent pas encore le flux principal.
 
 Les secrets et clés API ne doivent jamais être commités. Utilisez des variables d’environnement ou un gestionnaire de secrets.
 
@@ -185,8 +195,8 @@ La CI GitHub exécute les contrôles sur Python 3.10, 3.11 et 3.12.
 - Le support principal vise Kali Linux.
 - Plusieurs outils externes produisent des sorties textuelles susceptibles de changer.
 - Le moteur est encore monolithique et gagnerait à être séparé en adaptateurs par outil.
-- La configuration YAML n’est pas encore appliquée uniformément à tous les scanners.
-- Les rapports HTML historiques chargent des ressources externes et ne sont pas générés par le flux CLI principal.
+- Certaines options avancées présentes dans `config.yaml`, notamment les API externes, notifications et wordlists, ne sont pas encore implémentées.
+- Les rapports HTML chargent Bootstrap et Chart.js depuis des CDN externes.
 - Les tests utilisent des mocks et ne remplacent pas une campagne d’intégration contrôlée sous Kali Linux.
 
 ## Contribution
