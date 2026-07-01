@@ -27,10 +27,11 @@ Statut : bêta opérationnelle. Le cœur du projet est testable et installable, 
 
 ## Architecture
 
-Le projet est actuellement organisé autour de deux modules principaux :
+Le projet est organisé autour de :
 
 - `spiderintel.py` : CLI, orchestration des scans, validation, collecte et rapports
 - `report_generator.py` : générateur de rapports historique conservé pour compatibilité
+- `spiderintel_ext/` : paquet des fonctionnalités avancées (cache, enrichissement via APIs externes, notifications, intégrations de suivi, wordlists, plugins, exports CSV/PDF)
 
 Les résultats sont enregistrés par cible dans `reports/<cible>/`.
 
@@ -208,12 +209,44 @@ docker run --rm --cap-add=NET_RAW spiderintel-kali-metasploit
 
 La validation Metasploit est disponible comme workflow GitHub manuel en raison de la taille du paquet et de son temps d’installation.
 
+## Fonctionnalités avancées
+
+Les options « avancées » de `config.yaml` sont désormais réellement implémentées
+dans le paquet `spiderintel_ext`. Elles sont toutes **désactivées par défaut** et
+ne s’activent que si elles sont explicitement activées dans la configuration et,
+le cas échéant, si des identifiants sont fournis. Aucun secret n’est jamais lu
+depuis le dépôt : les clés sont attendues via des variables d’environnement.
+
+| Fonctionnalité | Activation (`config.yaml`) | Identifiants (variables d’environnement) |
+|---|---|---|
+| Enrichissement Shodan | `apis.shodan.enabled: true` | `SPIDERINTEL_SHODAN_API_KEY` |
+| Enrichissement VirusTotal | `apis.virustotal.enabled: true` | `SPIDERINTEL_VIRUSTOTAL_API_KEY` |
+| Enrichissement Censys | `apis.censys.enabled: true` | `SPIDERINTEL_CENSYS_API_ID`, `SPIDERINTEL_CENSYS_API_SECRET` |
+| Comptes compromis (HIBP) | `apis.have_i_been_pwned.enabled: true` | `SPIDERINTEL_HIBP_API_KEY` |
+| Notification e-mail | `notifications.email.enabled: true` | `SPIDERINTEL_SMTP_PASSWORD` |
+| Notification webhook | `notifications.webhook.enabled: true` | `SPIDERINTEL_WEBHOOK_URL` |
+| Notification Slack | `notifications.slack.enabled: true` | `SPIDERINTEL_SLACK_WEBHOOK_URL` |
+| Ticket Jira | `integrations.jira.enabled: true` | `SPIDERINTEL_JIRA_API_TOKEN` |
+| Issue GitLab | `integrations.gitlab.enabled: true` | `SPIDERINTEL_GITLAB_TOKEN` |
+| Événements Splunk | `integrations.splunk.enabled: true` | `SPIDERINTEL_SPLUNK_TOKEN` |
+
+- **Cache disque** (`caching.enabled`) : met en cache les réponses des APIs
+  externes avec expiration (TTL) et limite de taille.
+- **Wordlists** (`wordlists.subdomains`, `wordlists.directories`) : brute force de
+  sous-domaines (DNS) et de répertoires (HTTP), exécuté uniquement en profondeur
+  `deep`.
+- **Plugins** (`plugins.custom_plugins_dir`) : chargement dynamique de plugins
+  Python exposant un hook `on_scan_complete(context)` (voir
+  `spiderintel_ext/plugins.py`).
+- **Exports** : CSV des découvertes (`reporting.export.csv_data`) et PDF via
+  `wkhtmltopdf` (`reporting.export.pdf_report`).
+
 ## Limites connues
 
 - Le support principal vise Kali Linux.
 - Plusieurs outils externes produisent des sorties textuelles susceptibles de changer.
-- Le moteur est encore monolithique et gagnerait à être séparé en adaptateurs par outil.
-- Certaines options avancées présentes dans `config.yaml`, notamment les API externes, notifications et wordlists, ne sont pas encore implémentées.
+- Le moteur historique `spiderintel.py` reste volumineux et gagnerait à être séparé en adaptateurs par outil.
+- Les options `advanced.experimental` (analyse assistée par IA, détection par apprentissage automatique) restent des marqueurs non implémentés et sans effet.
 - Les rapports HTML chargent Bootstrap et Chart.js depuis des CDN externes.
 - Les smoke tests Kali couvrent une cible locale contrôlée; ils ne remplacent pas une recette opérationnelle sur l’infrastructure et les politiques réseau de l’organisation.
 

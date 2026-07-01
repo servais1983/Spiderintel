@@ -47,6 +47,17 @@ import logging
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 
+from spiderintel_ext import (
+    CacheManager,
+    DirectoryBruteforcer,
+    IntegrationManager,
+    NotificationManager,
+    OSINTEnrichment,
+    PluginManager,
+    ReportExporter,
+    SubdomainBruteforcer,
+)
+
 # Logo ASCII de SpiderIntel
 SPIDERINTEL_LOGO = """
 ███████╗██████╗ ██╗██████╗ ███████╗██████╗     ██╗███╗   ██╗████████╗███████╗██╗     
@@ -1417,6 +1428,26 @@ class RealDataReportGenerator:
                     status = phase.get("status", "unknown")
                     detail = f" - {phase.get('error')}" if phase.get("error") else ""
                     report.append(f"- **{phase_name}:** {status}{detail}")
+
+            enrichment = self.scan_metadata.get("enrichment") or {}
+            if enrichment:
+                report.append("\n## Enrichissement OSINT (APIs externes)")
+                for source, payload in enrichment.items():
+                    report.append(f"- **{source}:** {json.dumps(payload, ensure_ascii=False)[:500]}")
+
+            wordlist_findings = self.scan_metadata.get("wordlist_findings") or {}
+            discovered_dirs = wordlist_findings.get("directories") or []
+            discovered_subs = wordlist_findings.get("subdomains") or []
+            if discovered_dirs or discovered_subs:
+                report.append("\n## Découvertes par Wordlists")
+                if discovered_subs:
+                    report.append(f"\n### Sous-domaines résolus ({len(discovered_subs)})")
+                    for item in discovered_subs[:50]:
+                        report.append(f"- {item['subdomain']} → {', '.join(item.get('addresses', []))}")
+                if discovered_dirs:
+                    report.append(f"\n### Répertoires accessibles ({len(discovered_dirs)})")
+                    for item in discovered_dirs[:50]:
+                        report.append(f"- [{item['status_code']}] {item['url']}")
         
         # Détails des découvertes
         report.append("\n## 🔍 Découvertes Détaillées")
@@ -2103,10 +2134,15 @@ class SpiderIntelMain:
             else:
                 exploit_suggestions = []
 
+            # Phase 5: Extensions avancées (enrichissement OSINT, wordlists)
+            logger.info("🧩 Phase 5: Extensions avancées")
+            extension_data = self._run_pre_report_extensions(osint_results, vulnerabilities)
+
             phases = {
                 "osint": osint_scanner.scan_status,
                 "vulnerability": vuln_scanner.scan_status,
                 "exploitation": {"metasploit": metasploit_status},
+                "extensions": extension_data["statuses"],
             }
             statuses = [
                 phase["status"]
@@ -2126,10 +2162,12 @@ class SpiderIntelMain:
                 "overall_status": overall_status,
                 "scan_depth": self.scan_depth,
                 "phases": phases,
+                "enrichment": extension_data["enrichment"],
+                "wordlist_findings": extension_data["wordlist_findings"],
             }
             
-            # Phase 5: Génération des rapports
-            logger.info("📝 Phase 5: Génération des rapports")
+            # Phase 6: Génération des rapports
+            logger.info("📝 Phase 6: Génération des rapports")
             report_generator = RealDataReportGenerator(
                 self.domain,
                 osint_results,
@@ -2199,7 +2237,17 @@ class SpiderIntelMain:
 
             if not generated_reports:
                 raise RuntimeError("Aucun rapport n'a pu être généré")
-            
+
+            # Phase 7: Diffusion et exports (CSV/PDF, notifications, tickets, plugins)
+            logger.info("📤 Phase 7: Diffusion des résultats")
+            delivery = self._run_post_report_extensions(
+                domain_output_dir,
+                timestamp,
+                generated_reports,
+                vulnerabilities,
+            )
+            scan_metadata["delivery"] = delivery
+
             return {
                 'osint_results': osint_results,
                 'vulnerabilities': vulnerabilities,
@@ -2207,6 +2255,7 @@ class SpiderIntelMain:
                 'reports': generated_reports,
                 'execution_time': execution_time,
                 'scan_metadata': scan_metadata,
+                'delivery': delivery,
                 'status': overall_status,
             }
             
@@ -2493,8 +2542,183 @@ RECOMMANDATIONS
 Généré par SpiderIntel v{__version__}
 Basé sur {len(report_generator.vulnerabilities)} découvertes de sécurité
 """
-        
+
         return summary
+
+    def _build_cache(self) -> Optional[CacheManager]:
+        """Instancie le cache disque si activé dans la configuration."""
+        if not self.config.get("caching.enabled", False):
+            return None
+        return CacheManager(
+            cache_dir=self.config.get("caching.cache_dir", "cache"),
+            ttl=int(self.config.get("caching.cache_duration", 3600) or 3600),
+            enabled=True,
+            size_limit=self.config.get("caching.cache_size_limit", "100MB"),
+        )
+
+    def _run_pre_report_extensions(self, osint_results, vulnerabilities) -> Dict[str, Any]:
+        """Enrichissement OSINT externe et brute force de wordlists.
+
+        Les sous-domaines et IP découverts sont fusionnés dans ``osint_results``
+        pour apparaître dans les rapports. Renvoie les statuts et les données
+        brutes à insérer dans les métadonnées de scan.
+        """
+        statuses: Dict[str, Dict[str, Any]] = {}
+        enrichment: Dict[str, Any] = {}
+        wordlist_findings: Dict[str, Any] = {}
+        cache = self._build_cache()
+        verify_tls = bool(self.config.get("security.ssl.verify_certificates", True))
+
+        # Enrichissement via APIs externes.
+        enricher = OSINTEnrichment(self.config, cache=cache)
+        if enricher.any_enabled:
+            try:
+                enrichment = enricher.enrich(
+                    self.domain,
+                    ips=sorted(getattr(osint_results, "ips", set())),
+                    emails=sorted(getattr(osint_results, "emails", set())),
+                )
+                statuses["enrichment"] = {"status": "completed", "error": ""}
+            except Exception as exc:  # défensif: ne jamais interrompre l'analyse
+                logger.exception("Échec de l'enrichissement OSINT")
+                statuses["enrichment"] = {"status": "failed", "error": str(exc)}
+        else:
+            statuses["enrichment"] = {"status": "skipped", "error": "aucune API activée"}
+
+        # Brute force de sous-domaines (wordlist DNS).
+        subdomain_wordlists = self.config.get("wordlists.subdomains", []) or []
+        if self.scan_depth == "deep" and subdomain_wordlists:
+            try:
+                brute = SubdomainBruteforcer(
+                    self.domain,
+                    subdomain_wordlists,
+                    threads=int(self.config.get("osint.limits.max_threads", 20) or 20),
+                )
+                discovered = brute.run()
+                wordlist_findings["subdomains"] = discovered
+                for item in discovered:
+                    osint_results.subdomains.add(item["subdomain"])
+                    for address in item.get("addresses", []):
+                        if SecurityValidator.validate_ip(address):
+                            osint_results.ips.add(address)
+                statuses["subdomain_bruteforce"] = {"status": "completed", "error": ""}
+            except Exception as exc:
+                logger.exception("Échec du brute force de sous-domaines")
+                statuses["subdomain_bruteforce"] = {"status": "failed", "error": str(exc)}
+        else:
+            statuses["subdomain_bruteforce"] = {
+                "status": "skipped",
+                "error": "profondeur < deep ou wordlist absente",
+            }
+
+        # Brute force de répertoires (wordlist HTTP).
+        directory_wordlists = self.config.get("wordlists.directories", []) or []
+        if self.scan_depth == "deep" and directory_wordlists:
+            try:
+                exclude = self.config.get("filters.exclude_status_codes", [404, 403, 400])
+                dir_brute = DirectoryBruteforcer(
+                    f"https://{self.domain}",
+                    directory_wordlists,
+                    threads=int(self.config.get("osint.limits.max_threads", 20) or 20),
+                    exclude_status=[int(code) for code in exclude],
+                    verify_tls=verify_tls,
+                )
+                wordlist_findings["directories"] = dir_brute.run()
+                statuses["directory_bruteforce"] = {"status": "completed", "error": ""}
+            except Exception as exc:
+                logger.exception("Échec du brute force de répertoires")
+                statuses["directory_bruteforce"] = {"status": "failed", "error": str(exc)}
+        else:
+            statuses["directory_bruteforce"] = {
+                "status": "skipped",
+                "error": "profondeur < deep ou wordlist absente",
+            }
+
+        return {
+            "statuses": statuses,
+            "enrichment": enrichment,
+            "wordlist_findings": wordlist_findings,
+        }
+
+    def _run_post_report_extensions(
+        self,
+        output_dir: Path,
+        timestamp: str,
+        generated_reports: Dict[str, Path],
+        vulnerabilities: List,
+    ) -> Dict[str, Any]:
+        """Exports (CSV/PDF), notifications, tickets et plugins après rapports."""
+        delivery: Dict[str, Any] = {}
+        findings = [
+            {
+                "name": getattr(v, "name", ""),
+                "severity": getattr(v, "severity", ""),
+                "description": getattr(v, "description", ""),
+            }
+            for v in vulnerabilities
+        ]
+
+        exporter = ReportExporter()
+
+        # Export CSV des découvertes.
+        if self.config.get("reporting.export.csv_data", False):
+            try:
+                csv_path = output_dir / f"spiderintel_findings_{timestamp}.csv"
+                exporter.export_csv(vulnerabilities, csv_path)
+                generated_reports["csv"] = csv_path
+                delivery["csv_export"] = {"status": "created", "path": str(csv_path)}
+            except Exception as exc:
+                logger.exception("Échec de l'export CSV")
+                delivery["csv_export"] = {"status": "failed", "error": str(exc)}
+
+        # Export PDF depuis le rapport HTML.
+        if self.config.get("reporting.export.pdf_report", False):
+            html_path = generated_reports.get("html")
+            if html_path is None:
+                delivery["pdf_export"] = {"status": "skipped", "error": "rapport HTML absent"}
+            else:
+                pdf_path = output_dir / f"spiderintel_analysis_{timestamp}.pdf"
+                result = exporter.export_pdf(html_path, pdf_path)
+                if result.get("status") == "created":
+                    generated_reports["pdf"] = pdf_path
+                delivery["pdf_export"] = result
+
+        # Notifications.
+        notifier = NotificationManager(self.config)
+        if notifier.any_enabled:
+            subject = f"SpiderIntel - {self.domain} ({len(findings)} découverte(s))"
+            message = (
+                f"Analyse terminée pour {self.domain}.\n"
+                f"Découvertes: {len(findings)}.\n"
+                f"Rapports: {', '.join(str(p) for p in generated_reports.values())}"
+            )
+            delivery["notifications"] = notifier.notify(
+                subject, message, {"domain": self.domain, "findings": len(findings)}
+            )
+
+        # Intégrations de suivi (Jira / GitLab / Splunk).
+        integrations = IntegrationManager(self.config)
+        if integrations.any_enabled:
+            delivery["integrations"] = integrations.dispatch(self.domain, findings)
+
+        # Plugins.
+        plugin_dir = self.config.get("plugins.custom_plugins_dir", "plugins")
+        manager = PluginManager(
+            plugin_dir=plugin_dir,
+            enabled=self.config.get("plugins.enabled", []) or [],
+            disabled=self.config.get("plugins.disabled", []) or [],
+        )
+        loaded = manager.discover()
+        if loaded:
+            context = {
+                "domain": self.domain,
+                "findings": findings,
+                "reports": {name: str(path) for name, path in generated_reports.items()},
+                "output_dir": str(output_dir),
+            }
+            delivery["plugins"] = manager.run_scan_complete(context)
+
+        return delivery
 
 def check_dependencies(
     config: Optional[RuntimeConfig] = None,
