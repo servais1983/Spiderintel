@@ -50,6 +50,7 @@ spiderintel = "spiderintel:main"
 
 [tool.setuptools]
 py-modules = ["spiderintel", "report_generator"]
+packages = ["spiderintel_ext"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
